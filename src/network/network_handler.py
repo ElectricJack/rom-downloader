@@ -7,7 +7,9 @@ import os
 import shutil
 import logging
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Callable, List
+import threading
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -98,12 +100,14 @@ class NetworkHandler:
         
         return self.current_base_path
     
-    def copy_to_network(self, local_file: Path, network_subfolder: str) -> Tuple[bool, str]:
-        """Copy a file from local storage to network drive.
+    def copy_to_network(self, local_file: Path, network_subfolder: str, 
+                       progress_callback: Optional[Callable[[int, int, str], None]] = None) -> Tuple[bool, str]:
+        """Copy a file from local storage to network drive with progress tracking.
         
         Args:
             local_file: Local file to copy.
             network_subfolder: Target subfolder on network drive.
+            progress_callback: Optional callback for progress updates (bytes_copied, total_bytes, filename).
             
         Returns:
             Tuple of (success, error_message).
@@ -122,11 +126,22 @@ class NetworkHandler:
             target_file = target_dir / local_file.name
             
             logger.info(f"Copying {local_file} to {target_file}")
-            shutil.copy2(local_file, target_file)
+            
+            # Get file size for progress tracking
+            file_size = local_file.stat().st_size
+            
+            if progress_callback and file_size > 0:
+                # Copy with progress tracking
+                self._copy_with_progress(local_file, target_file, progress_callback)
+            else:
+                # Simple copy for small files or when no callback provided
+                shutil.copy2(local_file, target_file)
             
             # Verify copy was successful
             if target_file.exists() and target_file.stat().st_size == local_file.stat().st_size:
                 logger.info(f"Successfully copied to network: {target_file}")
+                if progress_callback:
+                    progress_callback(file_size, file_size, local_file.name)
                 return True, ""
             else:
                 return False, "Copy verification failed"
@@ -136,11 +151,44 @@ class NetworkHandler:
             logger.error(error_msg)
             return False, error_msg
     
-    def sync_local_to_network(self, platform: str) -> Tuple[int, int, List[str]]:
+    def _copy_with_progress(self, src: Path, dst: Path, progress_callback: Callable[[int, int, str], None]):
+        """Copy file with progress tracking.
+        
+        Args:
+            src: Source file path.
+            dst: Destination file path.
+            progress_callback: Callback for progress updates (bytes_copied, total_bytes, filename).
+        """
+        file_size = src.stat().st_size
+        copied_bytes = 0
+        buffer_size = 64 * 1024  # 64KB buffer
+        
+        with open(src, 'rb') as src_file, open(dst, 'wb') as dst_file:
+            while True:
+                buffer = src_file.read(buffer_size)
+                if not buffer:
+                    break
+                
+                dst_file.write(buffer)
+                copied_bytes += len(buffer)
+                
+                # Update progress
+                progress_callback(copied_bytes, file_size, src.name)
+                
+                # Small delay to allow progress updates to be processed
+                if copied_bytes % (buffer_size * 10) == 0:  # Update every 640KB
+                    time.sleep(0.01)
+        
+        # Copy file metadata
+        shutil.copystat(src, dst)
+    
+    def sync_local_to_network(self, platform: str, 
+                             progress_callback: Optional[Callable[[int, int, str], None]] = None) -> Tuple[int, int, List[str]]:
         """Sync local ROM files to network drive.
         
         Args:
             platform: Platform name to sync.
+            progress_callback: Optional callback for progress updates (bytes_copied, total_bytes, filename).
             
         Returns:
             Tuple of (successful_copies, failed_copies, error_messages).
@@ -159,7 +207,7 @@ class NetworkHandler:
         try:
             for local_file in local_platform_path.iterdir():
                 if local_file.is_file():
-                    success, error = self.copy_to_network(local_file, platform)
+                    success, error = self.copy_to_network(local_file, platform, progress_callback)
                     if success:
                         successful_copies += 1
                         # Optionally remove local file after successful copy

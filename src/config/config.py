@@ -5,6 +5,8 @@ Handles loading and managing platform configurations.
 
 import json
 import logging
+import os
+import subprocess
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -57,7 +59,8 @@ class ConfigManager:
                     "url": "https://myrient.erista.me/files/Redump/Nintendo%20-%20GameCube%20-%20NKit%20RVZ%20[zstd-19-128k]/",
                     "target_folder": "gamecube",
                     "file_extensions": [".rvz", ".zip", ".7z"],
-                    "file_pattern": r".*\.(rvz|zip|7z)$"
+                    "file_pattern": r".*\.(rvz|zip|7z)$",
+                    "extract_archives": true
                 }
             }
         }
@@ -128,6 +131,46 @@ class ConfigManager:
         """Get the network drive path for ROM storage."""
         return self.get_setting("network_drive_path", "//BATOCERA/share/roms")
     
+    def _is_wsl(self) -> bool:
+        """Check if we're running inside WSL."""
+        try:
+            with open('/proc/version', 'r') as f:
+                return 'microsoft' in f.read().lower() or 'wsl' in f.read().lower()
+        except:
+            return False
+    
+    def _convert_unc_path_for_wsl(self, unc_path: str) -> Path:
+        """Convert Windows UNC path to WSL-compatible path.
+        
+        Args:
+            unc_path: Windows UNC path like //SERVER/share/path
+            
+        Returns:
+            WSL-compatible path
+        """
+        if not self._is_wsl():
+            return Path(unc_path)
+        
+        # Convert //SERVER/share/path to /mnt/SERVER format (mount point only)
+        if unc_path.startswith('//') or unc_path.startswith('\\\\'):
+            # Remove leading slashes and split
+            clean_path = unc_path.replace('\\', '/').lstrip('/')
+            parts = clean_path.split('/')
+            if len(parts) >= 1:
+                server = parts[0].lower()
+                # Only use server name for mount point, ignore the share name since we mounted the share directly
+                wsl_path = f"/mnt/{server}"
+                # Add any additional path components after the share
+                if len(parts) > 2:  # Skip server and share, take the rest
+                    additional_path = '/'.join(parts[2:])
+                    wsl_path = f"{wsl_path}/{additional_path}"
+                logger.info(f"Converting UNC path {unc_path} to WSL path {wsl_path}")
+                return Path(wsl_path)
+        
+        # Fallback to original path
+        logger.warning(f"Could not convert UNC path {unc_path}, using as-is")
+        return Path(unc_path)
+    
     def get_target_path(self, platform_name: str) -> Optional[Path]:
         """Get the full target path for a platform.
         
@@ -144,4 +187,21 @@ class ConfigManager:
         network_path = self.get_network_drive_path()
         target_folder = platform.get("target_folder", platform_name.lower())
         
-        return Path(network_path) / target_folder
+        # Convert UNC path for WSL compatibility
+        base_path = self._convert_unc_path_for_wsl(network_path)
+        return base_path / target_folder
+    
+    def should_extract_archives(self, platform_name: str) -> bool:
+        """Check if archives should be extracted for a platform.
+        
+        Args:
+            platform_name: Name of the platform.
+            
+        Returns:
+            True if archives should be extracted, False otherwise.
+        """
+        platform = self.get_platform(platform_name)
+        if not platform:
+            return False
+        
+        return platform.get("extract_archives", False)

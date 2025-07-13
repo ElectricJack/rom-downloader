@@ -6,7 +6,7 @@ Handles scraping ROM download pages to enumerate available files.
 import re
 import logging
 from typing import List, Dict, Optional
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, unquote
 import requests
 from bs4 import BeautifulSoup
 
@@ -16,7 +16,7 @@ class RomInfo:
     """Represents information about a ROM file."""
     
     def __init__(self, name: str, url: str, size: str = "", file_type: str = ""):
-        self.name = name
+        self.name = unquote(name)
         self.url = url
         self.size = size
         self.file_type = file_type
@@ -47,9 +47,15 @@ class RomInfo:
         # Remove file extensions
         clean = re.sub(r'\.(rvz|zip|7z|iso|bin|cue)$', '', self.name, flags=re.IGNORECASE)
         
-        # Remove common prefixes/suffixes
+        # Remove common prefixes/suffixes but keep region info
         clean = re.sub(r'^\[.*?\]\s*', '', clean)  # Remove [tags] at start
-        clean = re.sub(r'\s*\(.*?\)$', '', clean)  # Remove (info) at end
+        # Remove non-region parenthetical info (keep region patterns)
+        region_patterns = [r'\(USA?\)', r'\(US\)', r'\(Europe?\)', r'\(Japan\)', r'\(World\)', r'\(En\)', r'\(English\)']
+        has_region = any(re.search(pattern, clean, re.IGNORECASE) for pattern in region_patterns)
+        
+        if not has_region:
+            # Only remove parentheses if no region found
+            clean = re.sub(r'\s*\(.*?\)$', '', clean)
         
         return clean.strip()
     

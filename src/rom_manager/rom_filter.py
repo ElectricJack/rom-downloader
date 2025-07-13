@@ -164,11 +164,12 @@ class RomFilter:
         
         return score
     
-    def scan_existing_roms(self, target_directory: Path) -> Set[str]:
+    def scan_existing_roms(self, target_directory: Path, extract_archives: bool = False) -> Set[str]:
         """Scan the target directory for existing ROM files.
         
         Args:
             target_directory: Path to scan for existing ROMs.
+            extract_archives: Whether archives are extracted for this platform.
             
         Returns:
             Set of normalized ROM names that already exist.
@@ -193,6 +194,34 @@ class RomFilter:
             logger.error(f"Error scanning existing ROMs in {target_directory}: {e}")
         
         return existing_roms
+    
+    def is_rom_installed(self, rom: RomInfo, target_directory: Path, extract_archives: bool = False) -> bool:
+        """Check if a ROM is already installed, considering extraction settings.
+        
+        Args:
+            rom: ROM information object.
+            target_directory: Directory where ROMs are stored.
+            extract_archives: Whether archives are extracted for this platform.
+            
+        Returns:
+            True if the ROM is installed, False otherwise.
+        """
+        if not target_directory.exists():
+            return False
+        
+        normalized_name = self._normalize_name(rom.clean_name)
+        
+        try:
+            for file_path in target_directory.iterdir():
+                if file_path.is_file():
+                    file_normalized = self._normalize_name(file_path.stem)
+                    if file_normalized == normalized_name:
+                        return True
+        except Exception as e:
+            logger.error(f"Error checking if ROM is installed: {e}")
+            return False
+        
+        return False
     
     def filter_already_downloaded(self, roms: List[RomInfo], existing_roms: Set[str]) -> List[RomInfo]:
         """Filter out ROMs that have already been downloaded.

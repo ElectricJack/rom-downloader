@@ -1,0 +1,19 @@
+{
+  "settings": {
+    "network_drive_path": "//BATOCERA/share/roms",
+    "temp_download_path": "./temp_downloads",
+    "download_delay_min": 2,
+    "download_delay_max": 5,
+    "preferred_regions": ["USA", "US", "En", "English"],
+    "max_concurrent_downloads": 1
+  },
+  "platforms": {
+    "GameCube": {
+      "name": "Nintendo GameCube",
+      "url": "https://myrient.erista.me/files/Redump/Nintendo%20-%20GameCube%20-%20NKit%20RVZ%20[zstd-19-128k]/",
+      "target_folder": "gamecube",
+      "file_extensions": [".rvz", ".zip", ".7z"],
+      "file_pattern": ".*\\.(rvz|zip|7z)$"
+    }
+  }
+}

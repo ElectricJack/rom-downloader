@@ -191,7 +191,7 @@ class DownloadManager:
     
     def download_roms(self, roms: List[RomInfo], target_directory: Path,
                      progress_callback: Optional[Callable[[DownloadProgress], None]] = None,
-                     completion_callback: Optional[Callable[[RomInfo, bool, str], None]] = None,
+                     completion_callback: Optional[Callable[[RomInfo, bool, str, Optional[str]], None]] = None,
                      platform_name: str = None) -> None:
         """Download a list of ROMs sequentially.
         
@@ -199,7 +199,7 @@ class DownloadManager:
             roms: List of ROMs to download.
             target_directory: Final destination directory.
             progress_callback: Optional callback for progress updates.
-            completion_callback: Optional callback for each completed download.
+            completion_callback: Optional callback for each completed download (rom, success, error, final_file_type).
             platform_name: Name of the platform for configuration lookup.
         """
         if self.is_downloading:
@@ -238,13 +238,13 @@ class DownloadManager:
                 logger.info(f"Downloading ROM {i+1}/{len(roms)}: {rom.clean_name}")
                 self.current_download = rom
                 
-                success, error_message = self._download_single_rom(
+                success, error_message, final_file_type = self._download_single_rom(
                     rom, target_directory, progress_callback, platform_name
                 )
                 
                 # Call completion callback if provided
                 if completion_callback:
-                    completion_callback(rom, success, error_message)
+                    completion_callback(rom, success, error_message, final_file_type)
                 
                 # Add delay between downloads (except for the last one)
                 if i < len(roms) - 1 and not self.cancelled:
@@ -273,7 +273,7 @@ class DownloadManager:
     
     def _download_single_rom(self, rom: RomInfo, target_directory: Path,
                            progress_callback: Optional[Callable[[DownloadProgress], None]] = None,
-                           platform_name: str = None) -> tuple[bool, str]:
+                           platform_name: str = None) -> tuple[bool, str, Optional[str]]:
         """Download a single ROM file.
         
         Args:
@@ -283,7 +283,7 @@ class DownloadManager:
             platform_name: Name of the platform for configuration lookup.
             
         Returns:
-            Tuple of (success, error_message).
+            Tuple of (success, error_message, final_file_type).
         """
         try:
             # Generate filename
@@ -294,7 +294,7 @@ class DownloadManager:
             # Check if file already exists
             if final_file.exists():
                 logger.info(f"File already exists, skipping: {final_file}")
-                return True, ""
+                return True, "", final_file.suffix.lower()
             
             # Start download
             logger.debug(f"Downloading {rom.url} to {temp_file}")
@@ -338,6 +338,11 @@ class DownloadManager:
             files_to_move = []
             if should_extract and self._is_archive(temp_file):
                 logger.info(f"Extracting archive: {temp_file}")
+                # Update progress to show extraction status
+                if progress_callback:
+                    extract_progress = DownloadProgress(rom, 0, 0, operation="extracting")
+                    progress_callback(extract_progress)
+                
                 extracted_files = self._extract_archive(temp_file, self.temp_path)
                 if extracted_files:
                     files_to_move = [(src, target_directory / src.name) for src in extracted_files]
@@ -385,6 +390,7 @@ class DownloadManager:
             # Process all files to move
             all_success = True
             error_messages = []
+            final_file_type = None
             
             for src_file, dst_file in files_to_move:
                 if dst_file.exists():
@@ -400,6 +406,9 @@ class DownloadManager:
                         all_success = False
                         # Clean up temp file on failure
                         src_file.unlink(missing_ok=True)
+                    else:
+                        # Track the file type of successfully queued files
+                        final_file_type = dst_file.suffix.lower()
                     
                 except Exception as e:
                     error_msg = f"Unexpected error during file transfer for {dst_file.name}: {e}"
@@ -409,22 +418,22 @@ class DownloadManager:
                     src_file.unlink(missing_ok=True)
             
             if not all_success:
-                return False, "; ".join(error_messages)
+                return False, "; ".join(error_messages), final_file_type
             
             logger.info(f"Successfully downloaded: {rom.clean_name}")
-            return True, ""
+            return True, "", final_file_type
             
         except requests.RequestException as e:
             error_msg = f"Network error downloading {rom.clean_name}: {e}"
             logger.error(error_msg)
             temp_file.unlink(missing_ok=True)
-            return False, error_msg
+            return False, error_msg, None
             
         except Exception as e:
             error_msg = f"Error downloading {rom.clean_name}: {e}"
             logger.error(error_msg)
             temp_file.unlink(missing_ok=True)
-            return False, error_msg
+            return False, error_msg, None
     
     def _sanitize_filename(self, filename: str) -> str:
         """Sanitize filename for filesystem compatibility.

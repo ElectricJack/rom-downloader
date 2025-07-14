@@ -54,6 +54,7 @@ class MainWindow:
         self.existing_roms: set = set()
         self.current_target_path: Optional[Path] = None
         self.current_extract_archives: bool = False
+        self.rom_tree_items: Dict[str, str] = {}  # rom.name -> tree item id
         
         self.setup_ui()
         self.setup_logging()
@@ -275,6 +276,7 @@ class MainWindow:
         # Update the display
         self.clear_rom_list()
         self.selected_roms.clear()
+        self.rom_tree_items.clear()
         
         # Add filtered ROMs to the tree
         for rom in self.filtered_roms:
@@ -286,6 +288,9 @@ class MainWindow:
             rom_id = self.rom_tree.insert('', 'end', text=rom.clean_name,
                                          values=(rom.region, rom.size, rom.file_type, installed_text),
                                          tags=(rom.name,))
+            
+            # Store the tree item ID for later updates
+            self.rom_tree_items[rom.name] = rom_id
             
             # Create boolean variable for selection tracking
             self.selected_roms[rom.name] = tk.BooleanVar()
@@ -367,11 +372,13 @@ class MainWindow:
             def progress_callback(progress: DownloadProgress):
                 self.root.after(0, self._update_progress, progress)
             
-            def completion_callback(rom: RomInfo, success: bool, error: str):
+            def completion_callback(rom: RomInfo, success: bool, error: str, final_file_type: str = None):
                 if success:
                     self.root.after(0, self.update_status, f"Downloaded: {rom.clean_name}")
+                    self.root.after(0, self._update_rom_tree_item, rom, None, "Installed", final_file_type)
                 else:
                     self.root.after(0, self.update_status, f"Failed: {rom.clean_name} - {error}")
+                    self.root.after(0, self._update_rom_tree_item, rom, None, "Failed")
             
             self.download_manager.download_roms(
                 roms, target_path, progress_callback, completion_callback, self.current_platform
@@ -393,9 +400,63 @@ class MainWindow:
         if progress.operation == "copying":
             self.copy_progress_var.set(progress.percentage)
             self.copy_status_label.config(text=str(progress))
+            # Update ROM tree item for copying status
+            self._update_rom_tree_item(progress.rom, status="Copying...")
+        elif progress.operation == "extracting":
+            self.progress_var.set(0)  # Indeterminate progress for extraction
+            self.update_status(f"Extracting {progress.rom.clean_name}...")
+            # Update ROM tree item for extraction status
+            self._update_rom_tree_item(progress.rom, status="Extracting...")
         else:
             self.progress_var.set(progress.percentage)
             self.update_status(str(progress))
+            # Update ROM tree item for download progress
+            self._update_rom_tree_item(progress.rom, 
+                                      size_progress=(progress.current_bytes, progress.total_bytes),
+                                      status="Downloading...")
+    
+    def _update_rom_tree_item(self, rom: RomInfo, size_progress: tuple = None, status: str = None, file_type: str = None):
+        """Update a ROM tree item with new information.
+        
+        Args:
+            rom: ROM information object.
+            size_progress: Tuple of (current_bytes, total_bytes) for download progress.
+            status: Status text for the installed column.
+            file_type: Final file type/extension after extraction.
+        """
+        if rom.name not in self.rom_tree_items:
+            return
+        
+        item_id = self.rom_tree_items[rom.name]
+        current_values = list(self.rom_tree.item(item_id, 'values'))
+        
+        # Update size column with progress if provided
+        if size_progress:
+            current_bytes, total_bytes = size_progress
+            if total_bytes > 0:
+                percentage = (current_bytes / total_bytes) * 100
+                size_text = f"{self._format_bytes(current_bytes)}/{self._format_bytes(total_bytes)} ({percentage:.1f}%)"
+            else:
+                size_text = self._format_bytes(current_bytes)
+            current_values[1] = size_text  # Size column
+        
+        # Update file type column if provided
+        if file_type:
+            current_values[2] = file_type.upper().replace('.', '')  # Type column, remove dot and uppercase
+        
+        # Update status column if provided
+        if status:
+            current_values[3] = status  # Installed column
+        
+        self.rom_tree.item(item_id, values=current_values)
+    
+    def _format_bytes(self, bytes_count: int) -> str:
+        """Format bytes in human readable format."""
+        for unit in ['B', 'KB', 'MB', 'GB']:
+            if bytes_count < 1024.0:
+                return f"{bytes_count:.1f} {unit}"
+            bytes_count /= 1024.0
+        return f"{bytes_count:.1f} TB"
     
     def update_status(self, message: str):
         """Update the status label."""

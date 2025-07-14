@@ -103,6 +103,7 @@ class DownloadManager:
         self.copy_thread = None
         self.copy_thread_running = False
         self.copy_progress_callback = None
+        self.copy_completion_callback = None
         self.current_copy_item = None
         self.max_queue_size = 2  # Allow up to 2 items in queue before pausing downloads
     
@@ -129,8 +130,14 @@ class DownloadManager:
                 
                 if success:
                     logger.info(f"Successfully copied to network: {item.rom.clean_name}")
+                    # Notify GUI that copy is complete
+                    if self.copy_completion_callback:
+                        self.copy_completion_callback(item.rom, True, "")
                 else:
                     logger.error(f"Failed to copy to network: {item.rom.clean_name}")
+                    # Notify GUI that copy failed
+                    if self.copy_completion_callback:
+                        self.copy_completion_callback(item.rom, False, "Copy failed")
                 
                 self.copy_queue.task_done()
                 self.current_copy_item = None
@@ -192,7 +199,8 @@ class DownloadManager:
     def download_roms(self, roms: List[RomInfo], target_directory: Path,
                      progress_callback: Optional[Callable[[DownloadProgress], None]] = None,
                      completion_callback: Optional[Callable[[RomInfo, bool, str, Optional[str]], None]] = None,
-                     platform_name: str = None) -> None:
+                     platform_name: str = None,
+                     copy_completion_callback: Optional[Callable[[RomInfo, bool, str], None]] = None) -> None:
         """Download a list of ROMs sequentially.
         
         Args:
@@ -201,6 +209,7 @@ class DownloadManager:
             progress_callback: Optional callback for progress updates.
             completion_callback: Optional callback for each completed download (rom, success, error, final_file_type).
             platform_name: Name of the platform for configuration lookup.
+            copy_completion_callback: Optional callback for when copies complete (rom, success, error).
         """
         if self.is_downloading:
             logger.warning("Download already in progress")
@@ -209,6 +218,7 @@ class DownloadManager:
         self.is_downloading = True
         self.cancelled = False
         self.copy_progress_callback = progress_callback
+        self.copy_completion_callback = copy_completion_callback
         
         # Start copy worker thread if not already running
         if not self.copy_thread_running:
@@ -331,6 +341,12 @@ class DownloadManager:
                             
                             progress_callback(progress)
             
+            # Final download progress update
+            if progress_callback and total_size > 0:
+                final_progress = DownloadProgress(rom, downloaded_size, total_size)
+                final_progress.percentage = 100.0
+                progress_callback(final_progress)
+            
             # Check if we need to extract the archive
             should_extract = (self.config_manager and platform_name and 
                             self.config_manager.should_extract_archives(platform_name))
@@ -348,6 +364,12 @@ class DownloadManager:
                     files_to_move = [(src, target_directory / src.name) for src in extracted_files]
                     # Remove the original archive file
                     temp_file.unlink(missing_ok=True)
+                    
+                    # Update progress to show extraction completed with final extracted size
+                    if progress_callback and extracted_files:
+                        total_extracted_size = sum(f.stat().st_size for f in extracted_files)
+                        extract_complete_progress = DownloadProgress(rom, total_extracted_size, total_extracted_size, operation="extracted")
+                        progress_callback(extract_complete_progress)
                 else:
                     # Extraction failed, move the original file
                     files_to_move = [(temp_file, final_file)]

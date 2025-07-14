@@ -375,13 +375,34 @@ class MainWindow:
             def completion_callback(rom: RomInfo, success: bool, error: str, final_file_type: str = None):
                 if success:
                     self.root.after(0, self.update_status, f"Downloaded: {rom.clean_name}")
-                    self.root.after(0, self._update_rom_tree_item, rom, None, "Installed", final_file_type)
+                    # Only update to Downloaded if not already handled by extraction callback
+                    # This handles the case where no extraction occurs
+                    if not self.config_manager.should_extract_archives(self.current_platform):
+                        # Update size to final size when download completes (no extraction)
+                        if rom.size:
+                            try:
+                                # Parse size string and convert to bytes for display
+                                size_bytes = self._parse_size_string(rom.size)
+                                self.root.after(0, self._update_rom_tree_item, rom, 
+                                               (size_bytes, size_bytes), "Downloaded", final_file_type)
+                            except:
+                                self.root.after(0, self._update_rom_tree_item, rom, None, "Downloaded", final_file_type)
+                        else:
+                            self.root.after(0, self._update_rom_tree_item, rom, None, "Downloaded", final_file_type)
                 else:
                     self.root.after(0, self.update_status, f"Failed: {rom.clean_name} - {error}")
                     self.root.after(0, self._update_rom_tree_item, rom, None, "Failed")
             
+            def copy_completion_callback(rom: RomInfo, success: bool, error: str):
+                if success:
+                    self.root.after(0, self.update_status, f"Installed: {rom.clean_name}")
+                    self.root.after(0, self._update_rom_tree_item, rom, None, "Installed")
+                else:
+                    self.root.after(0, self.update_status, f"Copy failed: {rom.clean_name} - {error}")
+                    self.root.after(0, self._update_rom_tree_item, rom, None, "Copy Failed")
+            
             self.download_manager.download_roms(
-                roms, target_path, progress_callback, completion_callback, self.current_platform
+                roms, target_path, progress_callback, completion_callback, self.current_platform, copy_completion_callback
             )
             
             self.root.after(0, self.update_status, f"Download session completed")
@@ -406,7 +427,15 @@ class MainWindow:
             self.progress_var.set(0)  # Indeterminate progress for extraction
             self.update_status(f"Extracting {progress.rom.clean_name}...")
             # Update ROM tree item for extraction status
-            self._update_rom_tree_item(progress.rom, status="Extracting...")
+            self._update_rom_tree_item(progress.rom, status="Unarchiving...")
+        elif progress.operation == "extracted":
+            self.progress_var.set(100)  # Complete extraction
+            self.update_status(f"Extracted {progress.rom.clean_name}")
+            # Update ROM tree item with final size after extraction and Downloaded status
+            size_text = self._format_bytes(progress.current_bytes)
+            self._update_rom_tree_item(progress.rom, 
+                                     size_progress=(progress.current_bytes, progress.current_bytes),
+                                     status="Downloaded")
         else:
             self.progress_var.set(progress.percentage)
             self.update_status(str(progress))
@@ -457,6 +486,32 @@ class MainWindow:
                 return f"{bytes_count:.1f} {unit}"
             bytes_count /= 1024.0
         return f"{bytes_count:.1f} TB"
+    
+    def _parse_size_string(self, size_str: str) -> int:
+        """Parse a size string like '852.9 MB' back to bytes."""
+        if not size_str:
+            return 0
+        
+        try:
+            # Remove any extra spaces and split
+            parts = size_str.strip().split()
+            if len(parts) != 2:
+                return 0
+            
+            value = float(parts[0])
+            unit = parts[1].upper()
+            
+            multipliers = {
+                'B': 1,
+                'KB': 1024,
+                'MB': 1024 * 1024,
+                'GB': 1024 * 1024 * 1024,
+                'TB': 1024 * 1024 * 1024 * 1024
+            }
+            
+            return int(value * multipliers.get(unit, 1))
+        except:
+            return 0
     
     def update_status(self, message: str):
         """Update the status label."""

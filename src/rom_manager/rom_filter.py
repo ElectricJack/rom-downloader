@@ -174,25 +174,74 @@ class RomFilter:
         Returns:
             Set of normalized ROM names that already exist.
         """
+        import time
+        start_time = time.time()
         existing_roms = set()
         
-        if not target_directory.exists():
-            logger.info(f"Target directory does not exist: {target_directory}")
+        logger.info(f"Scanning for existing ROMs in: {target_directory}")
+        
+        # Check if path exists
+        try:
+            exists_check_start = time.time()
+            path_exists = target_directory.exists()
+            exists_check_time = time.time() - exists_check_start
+            logger.info(f"Path existence check took {exists_check_time:.2f}s, exists: {path_exists}")
+            
+            if not path_exists:
+                logger.info(f"Target directory does not exist: {target_directory}")
+                return existing_roms
+        except Exception as e:
+            logger.error(f"Error checking if target directory exists: {e}")
             return existing_roms
         
+        # Check if it's a directory
         try:
+            is_dir_start = time.time()
+            is_directory = target_directory.is_dir()
+            is_dir_time = time.time() - is_dir_start
+            logger.info(f"Directory check took {is_dir_time:.2f}s, is_dir: {is_directory}")
+            
+            if not is_directory:
+                logger.warning(f"Target path is not a directory: {target_directory}")
+                return existing_roms
+        except Exception as e:
+            logger.error(f"Error checking if target path is directory: {e}")
+            return existing_roms
+        
+        # Try to list directory contents
+        try:
+            logger.info("Starting directory listing...")
+            iterdir_start = time.time()
+            
+            file_count = 0
             for file_path in target_directory.iterdir():
+                file_count += 1
+                if file_count % 100 == 0:  # Log progress every 100 files
+                    logger.info(f"Processed {file_count} files so far...")
+                
                 if file_path.is_file():
                     # Normalize the filename for comparison
                     normalized_name = self._normalize_name(file_path.stem)
                     existing_roms.add(normalized_name)
-                    logger.debug(f"Found existing ROM: {file_path.name}")
+                    
+                    if len(existing_roms) <= 5:  # Log first 5 existing ROMs
+                        logger.info(f"Found existing ROM: {file_path.name}")
+                    elif len(existing_roms) % 50 == 0:  # Log progress every 50 ROMs
+                        logger.info(f"Found {len(existing_roms)} existing ROMs so far...")
             
+            iterdir_time = time.time() - iterdir_start
+            logger.info(f"Directory listing completed in {iterdir_time:.2f}s, processed {file_count} total files")
             logger.info(f"Found {len(existing_roms)} existing ROMs in {target_directory}")
             
+        except PermissionError as e:
+            logger.error(f"Permission denied accessing {target_directory}: {e}")
+        except OSError as e:
+            logger.error(f"OS error scanning existing ROMs in {target_directory}: {e}")
         except Exception as e:
-            logger.error(f"Error scanning existing ROMs in {target_directory}: {e}")
+            logger.error(f"Unexpected error scanning existing ROMs in {target_directory}: {e}", exc_info=True)
         
+        total_time = time.time() - start_time
+        logger.info(f"Existing ROM scan completed in {total_time:.2f}s")
         return existing_roms
     
     def is_rom_installed(self, rom: RomInfo, target_directory: Path, extract_archives: bool = False) -> bool:

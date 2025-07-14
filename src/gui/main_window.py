@@ -262,9 +262,39 @@ class MainWindow:
                 logger.info(f"Extract archives: {self.current_extract_archives}")
                 
                 existing_start = time.time()
-                self.existing_roms = self.rom_filter.scan_existing_roms(self.current_target_path, self.current_extract_archives)
-                existing_time = time.time() - existing_start
-                logger.info(f"Existing ROM scan completed in {existing_time:.2f}s, found {len(self.existing_roms)} existing ROMs")
+                logger.info("Starting existing ROM scan with timeout protection...")
+                try:
+                    # Add timeout protection using threading
+                    import threading
+                    result_container = {}
+                    
+                    def scan_with_timeout():
+                        try:
+                            result_container['roms'] = self.rom_filter.scan_existing_roms(self.current_target_path, self.current_extract_archives)
+                            result_container['success'] = True
+                        except Exception as e:
+                            result_container['error'] = e
+                            result_container['success'] = False
+                    
+                    scan_thread = threading.Thread(target=scan_with_timeout)
+                    scan_thread.daemon = True
+                    scan_thread.start()
+                    scan_thread.join(timeout=30)  # 30 second timeout
+                    
+                    if scan_thread.is_alive():
+                        logger.error("Existing ROM scan timed out after 30 seconds - network drive may be slow or unresponsive")
+                        self.existing_roms = set()
+                    elif result_container.get('success'):
+                        self.existing_roms = result_container['roms']
+                        existing_time = time.time() - existing_start
+                        logger.info(f"Existing ROM scan completed in {existing_time:.2f}s, found {len(self.existing_roms)} existing ROMs")
+                    else:
+                        logger.error(f"Existing ROM scan failed: {result_container.get('error')}")
+                        self.existing_roms = set()
+                        
+                except Exception as e:
+                    logger.error(f"Error in timeout-protected ROM scan: {e}")
+                    self.existing_roms = set()
             else:
                 logger.info("No target path configured, skipping existing ROM check")
                 self.current_target_path = None

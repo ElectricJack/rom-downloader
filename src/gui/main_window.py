@@ -208,80 +208,150 @@ class MainWindow:
     
     def _scan_roms_thread(self):
         """Thread function for scanning ROMs."""
+        import time
+        start_time = time.time()
+        
         try:
+            logger.info(f"=== Starting ROM scan for platform: {self.current_platform} ===")
             self.update_status("Scanning for ROMs...")
             self.scan_button.config(state='disabled')
             
+            # Step 1: Get platform configuration
+            logger.info("Step 1: Getting platform configuration...")
             platform_config = self.config_manager.get_platform(self.current_platform)
             if not platform_config:
+                logger.error(f"Platform configuration not found for: {self.current_platform}")
                 self.update_status("Error: Platform configuration not found")
                 return
             
-            # Scrape ROMs from the platform URL
+            logger.info(f"Platform config loaded: {platform_config}")
+            
+            # Step 2: Scrape ROMs from the platform URL
             url = platform_config['url']
             file_pattern = platform_config.get('file_pattern')
+            logger.info(f"Step 2: Starting web scraping from URL: {url}")
+            logger.info(f"Using file pattern: {file_pattern}")
             
             self.update_status(f"Fetching ROM list from {url}...")
+            scrape_start = time.time()
             raw_roms = self.web_scraper.scrape_roms(url, file_pattern)
+            scrape_time = time.time() - scrape_start
+            logger.info(f"Web scraping completed in {scrape_time:.2f}s")
             
             if not raw_roms:
+                logger.warning("No ROMs found from web scraping")
                 self.update_status("No ROMs found or unable to connect to the URL")
                 return
             
+            logger.info(f"Found {len(raw_roms)} raw ROMs from web scraping")
+            
+            # Step 3: Filter and deduplicate
             self.update_status(f"Found {len(raw_roms)} ROMs, filtering duplicates...")
-            
-            # Filter and deduplicate
+            logger.info("Step 3: Starting ROM filtering and deduplication...")
+            filter_start = time.time()
             filtered_roms = self.rom_filter.filter_and_deduplicate(raw_roms)
+            filter_time = time.time() - filter_start
+            logger.info(f"ROM filtering completed in {filter_time:.2f}s, {len(filtered_roms)} ROMs after filtering")
             
-            # Check which ROMs are already downloaded
+            # Step 4: Check which ROMs are already downloaded
+            logger.info("Step 4: Checking for existing ROMs...")
             self.current_target_path = self.config_manager.get_target_path(self.current_platform)
             if self.current_target_path:
+                logger.info(f"Target path: {self.current_target_path}")
                 self.current_extract_archives = self.config_manager.should_extract_archives(self.current_platform)
+                logger.info(f"Extract archives: {self.current_extract_archives}")
+                
+                existing_start = time.time()
                 self.existing_roms = self.rom_filter.scan_existing_roms(self.current_target_path, self.current_extract_archives)
-                # Don't filter out existing ROMs anymore - just track them for display
-                # filtered_roms = self.rom_filter.filter_already_downloaded(filtered_roms, existing_roms)
+                existing_time = time.time() - existing_start
+                logger.info(f"Existing ROM scan completed in {existing_time:.2f}s, found {len(self.existing_roms)} existing ROMs")
             else:
+                logger.info("No target path configured, skipping existing ROM check")
                 self.current_target_path = None
                 self.current_extract_archives = False
                 self.existing_roms = set()
             
-            # Update UI on main thread
+            # Step 5: Update UI
+            logger.info("Step 5: Updating UI with ROM list...")
+            ui_start = time.time()
             self.root.after(0, self._update_rom_list, filtered_roms)
+            ui_time = time.time() - ui_start
+            logger.info(f"UI update queued in {ui_time:.2f}s")
+            
+            total_time = time.time() - start_time
+            logger.info(f"=== ROM scan completed successfully in {total_time:.2f}s ===")
             
         except Exception as e:
-            logger.error(f"Error scanning ROMs: {e}")
+            logger.error(f"Error scanning ROMs: {e}", exc_info=True)
             self.root.after(0, self.update_status, f"Error scanning ROMs: {e}")
         finally:
             self.root.after(0, lambda: self.scan_button.config(state='normal'))
     
     def _update_rom_list(self, roms: List[RomInfo]):
         """Update the ROM list in the UI (called on main thread)."""
+        import time
+        start_time = time.time()
+        logger.info(f"=== Starting UI ROM list update with {len(roms)} ROMs ===")
+        
         self.available_roms = roms
+        ui_time = time.time() - start_time
+        logger.info(f"ROM list updated in {ui_time:.2f}s, applying region filter...")
+        
+        filter_start = time.time()
         self.apply_region_filter()
+        filter_time = time.time() - filter_start
+        logger.info(f"Region filter applied in {filter_time:.2f}s")
+        
+        total_time = time.time() - start_time
+        logger.info(f"=== UI ROM list update completed in {total_time:.2f}s ===")
         
     def apply_region_filter(self):
         """Apply region filtering to the ROM list."""
+        import time
+        start_time = time.time()
+        logger.info("=== Starting region filter application ===")
+        
         if not self.available_roms:
+            logger.info("No available ROMs to filter")
             return
             
         # Get selected regions
         selected_regions = [region for region, var in self.region_filters.items() if var.get()]
+        logger.info(f"Selected regions for filtering: {selected_regions}")
         
         # Filter ROMs by selected regions
+        region_start = time.time()
         if selected_regions:
             self.filtered_roms = [rom for rom in self.available_roms if rom.region in selected_regions]
         else:
             self.filtered_roms = self.available_roms
+        region_time = time.time() - region_start
+        logger.info(f"Region filtering completed in {region_time:.2f}s, {len(self.filtered_roms)} ROMs after region filter")
         
         # Update the display
+        logger.info("Clearing existing ROM list display...")
+        clear_start = time.time()
         self.clear_rom_list()
         self.selected_roms.clear()
         self.rom_tree_items.clear()
+        clear_time = time.time() - clear_start
+        logger.info(f"ROM list cleared in {clear_time:.2f}s")
         
         # Add filtered ROMs to the tree
-        for rom in self.filtered_roms:
+        logger.info(f"Adding {len(self.filtered_roms)} ROMs to tree view...")
+        tree_start = time.time()
+        
+        for i, rom in enumerate(self.filtered_roms):
+            if i % 50 == 0:  # Log progress every 50 ROMs
+                logger.info(f"Processing ROM {i+1}/{len(self.filtered_roms)}: {rom.clean_name}")
+            
             # Check if ROM is installed and get detailed info
+            installed_start = time.time()
             is_installed, installed_size, installed_type = self._get_rom_installed_info(rom)
+            installed_time = time.time() - installed_start
+            
+            if installed_time > 0.1:  # Log slow installed checks
+                logger.warning(f"Slow installed check for {rom.clean_name}: {installed_time:.2f}s")
             
             # Determine display values based on installation status
             if is_installed:
@@ -306,8 +376,14 @@ class MainWindow:
             # Create boolean variable for selection tracking
             self.selected_roms[rom.name] = tk.BooleanVar()
         
+        tree_time = time.time() - tree_start
+        logger.info(f"Tree view population completed in {tree_time:.2f}s")
+        
         self.update_status(f"Showing {len(self.filtered_roms)} of {len(self.available_roms)} ROMs")
         self.update_button_states()
+        
+        total_time = time.time() - start_time
+        logger.info(f"=== Region filter application completed in {total_time:.2f}s ===")
     
     def clear_rom_list(self):
         """Clear the ROM list."""

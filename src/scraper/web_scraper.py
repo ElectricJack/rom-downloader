@@ -84,21 +84,45 @@ class WebScraper:
         Returns:
             List of RomInfo objects representing found ROMs.
         """
+        import time
+        start_time = time.time()
+        
         try:
             logger.info(f"Scraping ROMs from: {url}")
+            logger.info(f"Using file pattern: {file_pattern}")
+            
+            request_start = time.time()
             response = self.session.get(url, timeout=30)
+            request_time = time.time() - request_start
+            logger.info(f"HTTP request completed in {request_time:.2f}s, status: {response.status_code}")
+            
             response.raise_for_status()
             
+            parse_start = time.time()
             soup = BeautifulSoup(response.content, 'html.parser')
+            parse_time = time.time() - parse_start
+            logger.info(f"HTML parsing completed in {parse_time:.2f}s")
+            
             roms = []
             
             # Look for file links - common patterns for directory listings
+            links_start = time.time()
             file_links = soup.find_all('a', href=True)
+            links_time = time.time() - links_start
+            logger.info(f"Found {len(file_links)} links in {links_time:.2f}s")
             
-            for link in file_links:
+            processed_count = 0
+            matched_count = 0
+            
+            for i, link in enumerate(file_links):
+                if i % 100 == 0 and i > 0:  # Log progress every 100 links
+                    logger.info(f"Processed {i}/{len(file_links)} links, found {matched_count} matches so far")
+                
                 href = link.get('href')
                 if not href or href.startswith('../') or href == '/':
                     continue
+                
+                processed_count += 1
                 
                 # Get the full URL
                 full_url = urljoin(url, href)
@@ -116,6 +140,8 @@ class WebScraper:
                 if file_pattern:
                     if not re.search(file_pattern, file_name, re.IGNORECASE):
                         continue
+                
+                matched_count += 1
                 
                 # Extract file size if available
                 size_text = ""
@@ -139,16 +165,18 @@ class WebScraper:
                 )
                 
                 roms.append(rom_info)
-                logger.debug(f"Found ROM: {rom_info}")
+                if len(roms) <= 10:  # Log first 10 ROMs found
+                    logger.info(f"Found ROM: {rom_info.clean_name} ({rom_info.size}, {rom_info.file_type})")
             
-            logger.info(f"Found {len(roms)} ROM files")
+            total_time = time.time() - start_time
+            logger.info(f"Scraping completed in {total_time:.2f}s - processed {processed_count} files, found {len(roms)} ROM files")
             return roms
             
         except requests.RequestException as e:
-            logger.error(f"Error scraping URL {url}: {e}")
+            logger.error(f"Network error scraping URL {url}: {e}")
             return []
         except Exception as e:
-            logger.error(f"Unexpected error scraping URL {url}: {e}")
+            logger.error(f"Unexpected error scraping URL {url}: {e}", exc_info=True)
             return []
     
     def test_connection(self, url: str) -> bool:

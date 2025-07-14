@@ -256,15 +256,20 @@ class RomFilter:
             Tuple of (is_installed, file_size, file_type).
         """
         if not target_directory.exists():
+            logger.debug(f"Target directory does not exist: {target_directory}")
             return False, "", ""
         
         normalized_name = self._normalize_name(rom.clean_name)
+        logger.debug(f"Checking installed status for ROM: {rom.clean_name} (normalized: {normalized_name})")
         
         try:
+            file_count = 0
             for file_path in target_directory.iterdir():
                 if file_path.is_file():
+                    file_count += 1
                     file_normalized = self._normalize_name(file_path.stem)
                     if file_normalized == normalized_name:
+                        logger.debug(f"Found matching installed ROM: {file_path.name}")
                         # Get file size
                         size_bytes = file_path.stat().st_size
                         size_str = self._format_bytes(size_bytes)
@@ -273,8 +278,12 @@ class RomFilter:
                         file_type = file_path.suffix.upper().replace('.', '')
                         
                         return True, size_str, file_type
+            
+            if file_count > 100:
+                logger.warning(f"Large number of files in target directory ({file_count}), this may slow down scanning")
+                
         except Exception as e:
-            logger.error(f"Error getting installed ROM info: {e}")
+            logger.error(f"Error getting installed ROM info for {rom.clean_name}: {e}")
             return False, "", ""
         
         return False, "", ""

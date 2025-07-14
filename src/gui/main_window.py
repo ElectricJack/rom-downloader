@@ -280,14 +280,25 @@ class MainWindow:
         
         # Add filtered ROMs to the tree
         for rom in self.filtered_roms:
-            # Check if ROM is installed
-            is_installed = self._is_rom_installed(rom)
-            installed_text = "Yes" if is_installed else "No"
+            # Check if ROM is installed and get detailed info
+            is_installed, installed_size, installed_type = self._get_rom_installed_info(rom)
+            
+            # Determine display values based on installation status
+            if is_installed:
+                installed_text = "Yes"
+                display_size = installed_size
+                display_type = installed_type
+                tags = (rom.name, 'installed')
+            else:
+                installed_text = "No"
+                display_size = rom.size
+                display_type = ""  # No type for non-installed games
+                tags = (rom.name,)
             
             # Create a tag for each ROM to track selection
             rom_id = self.rom_tree.insert('', 'end', text=rom.clean_name,
-                                         values=(rom.region, rom.size, rom.file_type, installed_text),
-                                         tags=(rom.name,))
+                                         values=(rom.region, display_size, display_type, installed_text),
+                                         tags=tags)
             
             # Store the tree item ID for later updates
             self.rom_tree_items[rom.name] = rom_id
@@ -317,16 +328,20 @@ class MainWindow:
     
     def _update_rom_display(self, item, selected: bool):
         """Update the visual display of a ROM's selection state."""
+        current_tags = list(self.rom_tree.item(item, 'tags'))
+        
         if selected:
-            self.rom_tree.item(item, tags=('selected',))
+            if 'selected' not in current_tags:
+                current_tags.append('selected')
         else:
-            tags = list(self.rom_tree.item(item, 'tags'))
-            if 'selected' in tags:
-                tags.remove('selected')
-            self.rom_tree.item(item, tags=tuple(tags))
+            if 'selected' in current_tags:
+                current_tags.remove('selected')
+        
+        self.rom_tree.item(item, tags=tuple(current_tags))
         
         # Configure tag appearance
         self.rom_tree.tag_configure('selected', background='lightblue')
+        self.rom_tree.tag_configure('installed', background='lightgreen')
     
     def select_all_roms(self):
         """Select all ROMs in the list."""
@@ -476,6 +491,13 @@ class MainWindow:
         # Update status column if provided
         if status:
             current_values[3] = status  # Installed column
+            
+            # If the status is "Installed", add the installed tag and update highlighting
+            if status == "Installed":
+                current_tags = list(self.rom_tree.item(item_id, 'tags'))
+                if 'installed' not in current_tags:
+                    current_tags.append('installed')
+                self.rom_tree.item(item_id, tags=tuple(current_tags))
         
         self.rom_tree.item(item_id, values=current_values)
     
@@ -533,6 +555,20 @@ class MainWindow:
         # Use cached existing ROMs set for fast lookup
         normalized_name = self.rom_filter._normalize_name(rom.clean_name)
         return normalized_name in self.existing_roms
+    
+    def _get_rom_installed_info(self, rom: RomInfo) -> tuple[bool, str, str]:
+        """Get detailed information about an installed ROM.
+        
+        Args:
+            rom: ROM information object.
+            
+        Returns:
+            Tuple of (is_installed, file_size, file_type).
+        """
+        if not self.current_target_path:
+            return False, "", ""
+        
+        return self.rom_filter.get_installed_rom_info(rom, self.current_target_path)
     
     def update_button_states(self):
         """Update button states based on current application state."""

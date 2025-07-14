@@ -244,3 +244,45 @@ class RomFilter:
         
         logger.info(f"Filtered out {len(roms) - len(filtered_roms)} already downloaded ROMs")
         return filtered_roms
+    
+    def get_installed_rom_info(self, rom: RomInfo, target_directory: Path) -> tuple[bool, str, str]:
+        """Get detailed information about an installed ROM.
+        
+        Args:
+            rom: ROM information object.
+            target_directory: Directory where ROMs are stored.
+            
+        Returns:
+            Tuple of (is_installed, file_size, file_type).
+        """
+        if not target_directory.exists():
+            return False, "", ""
+        
+        normalized_name = self._normalize_name(rom.clean_name)
+        
+        try:
+            for file_path in target_directory.iterdir():
+                if file_path.is_file():
+                    file_normalized = self._normalize_name(file_path.stem)
+                    if file_normalized == normalized_name:
+                        # Get file size
+                        size_bytes = file_path.stat().st_size
+                        size_str = self._format_bytes(size_bytes)
+                        
+                        # Get file type (extension without dot)
+                        file_type = file_path.suffix.upper().replace('.', '')
+                        
+                        return True, size_str, file_type
+        except Exception as e:
+            logger.error(f"Error getting installed ROM info: {e}")
+            return False, "", ""
+        
+        return False, "", ""
+    
+    def _format_bytes(self, bytes_count: int) -> str:
+        """Format bytes in human readable format."""
+        for unit in ['B', 'KB', 'MB', 'GB']:
+            if bytes_count < 1024.0:
+                return f"{bytes_count:.1f} {unit}"
+            bytes_count /= 1024.0
+        return f"{bytes_count:.1f} TB"

@@ -390,28 +390,22 @@ class DownloadManager:
             # CHD conversion step - convert eligible files before network copy
             converted_files = []
             
-            # For multi-track games, find CUE files first and prioritize them
+            # Check if we have CUE files - if so, ONLY process CUE files and skip ALL BIN files
             cue_files = [src for src, dst in files_to_move if src.suffix.lower() == '.cue']
             bin_files = [src for src, dst in files_to_move if src.suffix.lower() == '.bin']
             
-            if cue_files and bin_files:
-                logger.info(f"Multi-track disc detected: {len(cue_files)} CUE files, {len(bin_files)} BIN files")
+            if cue_files:
+                logger.info(f"CUE files detected ({len(cue_files)} CUE, {len(bin_files)} BIN) - processing ONLY CUE files, skipping all BIN files")
                 
-                # Track which files should be skipped
-                processed_files = set()
-                
-                # PHASE 1: Process all CUE files first
-                logger.info("Phase 1: Processing CUE files for CHD conversion")
                 for src_file, dst_file in files_to_move:
+                    # Skip if destination already exists
+                    if dst_file.exists():
+                        logger.info(f"File already exists, skipping: {dst_file}")
+                        src_file.unlink(missing_ok=True)
+                        continue
+                    
                     if src_file.suffix.lower() == '.cue':
-                        # Skip if destination already exists
-                        if dst_file.exists():
-                            logger.info(f"File already exists, skipping: {dst_file}")
-                            src_file.unlink(missing_ok=True)
-                            processed_files.add(src_file)
-                            continue
-                        
-                        # Try CHD conversion for CUE file
+                        # Process CUE file for CHD conversion
                         logger.info(f"Processing CUE file for CHD conversion: {src_file.name}")
                         chd_file = self._convert_to_chd(src_file, platform_name, progress_callback, rom)
                         if chd_file:
@@ -419,50 +413,30 @@ class DownloadManager:
                             chd_dst_file = dst_file.parent / chd_file.name
                             converted_files.append((chd_file, chd_dst_file))
                             logger.info(f"Converted CUE to CHD: {chd_file.name}")
-                            
-                            # Mark ALL BIN files as processed (they were consumed by CHD conversion)
-                            for bin_src, bin_dst in files_to_move:
-                                if bin_src.suffix.lower() == '.bin':
-                                    processed_files.add(bin_src)
-                                    logger.info(f"BIN file consumed by CHD conversion: {bin_src.name}")
-                                    # Clean up the BIN file since it was processed by CHD conversion
-                                    bin_src.unlink(missing_ok=True)
                         else:
                             # No conversion, use original CUE file
                             converted_files.append((src_file, dst_file))
                             logger.info(f"Moving CUE file (no conversion): {src_file} to {dst_file}")
-                        
-                        processed_files.add(src_file)
-                
-                # PHASE 2: Process remaining files (should be no BIN files if CUE conversion succeeded)
-                logger.info("Phase 2: Processing remaining files")
-                for src_file, dst_file in files_to_move:
-                    if src_file in processed_files:
-                        logger.info(f"Skipping already processed file: {src_file.name}")
-                        continue
                     
-                    # Skip if destination already exists
-                    if dst_file.exists():
-                        logger.info(f"File already exists, skipping: {dst_file}")
+                    elif src_file.suffix.lower() == '.bin':
+                        # NEVER process BIN files when CUE files exist - just clean them up
+                        logger.info(f"Skipping BIN file (CUE file will reference it): {src_file.name}")
                         src_file.unlink(missing_ok=True)
-                        continue
                     
-                    # Process remaining files (standalone BIN files or other file types)
-                    if src_file.suffix.lower() == '.bin':
-                        logger.warning(f"Processing standalone BIN file (no CUE found): {src_file.name}")
-                    
-                    chd_file = self._convert_to_chd(src_file, platform_name, progress_callback, rom)
-                    if chd_file:
-                        chd_dst_file = dst_file.parent / chd_file.name
-                        converted_files.append((chd_file, chd_dst_file))
-                        logger.info(f"Converted to CHD: {chd_file.name}")
                     else:
-                        converted_files.append((src_file, dst_file))
-                        logger.info(f"Moving {src_file} to {dst_file}")
+                        # Process other file types normally
+                        chd_file = self._convert_to_chd(src_file, platform_name, progress_callback, rom)
+                        if chd_file:
+                            chd_dst_file = dst_file.parent / chd_file.name
+                            converted_files.append((chd_file, chd_dst_file))
+                            logger.info(f"Converted to CHD: {chd_file.name}")
+                        else:
+                            converted_files.append((src_file, dst_file))
+                            logger.info(f"Moving {src_file} to {dst_file}")
             
             else:
-                # Single file or no CUE/BIN combination - process normally
-                logger.info("Single file or non-multi-track disc detected")
+                # No CUE files - process all files normally (including standalone BIN files)
+                logger.info(f"No CUE files detected - processing all files normally")
                 for src_file, dst_file in files_to_move:
                     # Skip if destination already exists
                     if dst_file.exists():

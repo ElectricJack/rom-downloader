@@ -577,22 +577,33 @@ class DownloadManager:
         Returns:
             Path to the converted CHD file, or None if conversion failed.
         """
+        logger.info(f"CHD conversion check: platform={platform_name}, file={source_file.name}")
+        
         # Check if conversion is needed and supported
-        if not self.config_manager or not self.config_manager.supports_chd(platform_name):
+        if not self.config_manager:
+            logger.info("CHD conversion skipped: no config manager")
+            return None
+            
+        if not self.config_manager.supports_chd(platform_name):
+            logger.info(f"CHD conversion skipped: platform {platform_name} does not support CHD")
             return None
             
         # Skip if already CHD format
         if source_file.suffix.lower() == '.chd':
+            logger.info(f"CHD conversion skipped: {source_file.name} is already CHD format")
             return None
             
         # Check if file format is convertible to CHD
         convertible_extensions = ['.bin', '.cue', '.iso', '.cdi', '.gdi']
         if source_file.suffix.lower() not in convertible_extensions:
+            logger.info(f"CHD conversion skipped: {source_file.suffix} is not convertible to CHD")
             return None
             
         # Find chdman.exe in tools folder
         tools_path = Path(__file__).parent.parent.parent / "tools"
         chdman_path = tools_path / "chdman.exe"
+        
+        logger.info(f"CHD conversion starting: looking for chdman.exe at {chdman_path}")
         
         if not chdman_path.exists():
             logger.warning(f"chdman.exe not found at {chdman_path}, skipping CHD conversion")
@@ -600,6 +611,9 @@ class DownloadManager:
             
         # Generate CHD output filename
         chd_file = source_file.parent / f"{source_file.stem}.chd"
+        
+        logger.info(f"CHD conversion: source={source_file}, output={chd_file}")
+        logger.info(f"CHD conversion: source file size={source_file.stat().st_size} bytes")
         
         try:
             logger.info(f"Converting {source_file.name} to CHD format...")
@@ -610,39 +624,124 @@ class DownloadManager:
                 progress_callback(convert_progress)
             
             # Determine chdman command based on file type
+            cmd = None
             if source_file.suffix.lower() == '.cue':
                 # For CUE files, use createcd command
                 cmd = [str(chdman_path), "createcd", "-i", str(source_file), "-o", str(chd_file)]
+                logger.info("CHD conversion: using createcd command for CUE file")
             elif source_file.suffix.lower() in ['.iso', '.bin']:
                 # For ISO/BIN files, try createcd first (for CD images), fallback to createdvd
                 cmd = [str(chdman_path), "createcd", "-i", str(source_file), "-o", str(chd_file)]
+                logger.info("CHD conversion: using createcd command for ISO/BIN file")
             elif source_file.suffix.lower() in ['.cdi', '.gdi']:
                 # For CDI/GDI files, use createcd
                 cmd = [str(chdman_path), "createcd", "-i", str(source_file), "-o", str(chd_file)]
+                logger.info("CHD conversion: using createcd command for CDI/GDI file")
             else:
                 logger.warning(f"Unsupported file type for CHD conversion: {source_file.suffix}")
                 return None
             
             # Run chdman conversion
-            logger.debug(f"Running command: {' '.join(cmd)}")
+            logger.info(f"CHD conversion: executing command: {' '.join(cmd)}")
+            logger.info(f"CHD conversion: working directory: {os.getcwd()}")
+            logger.info(f"CHD conversion: timeout set to 1800 seconds (30 minutes)")
             
-            result = subprocess.run(
+            start_time = time.time()
+            
+            # Run with real-time output logging
+            process = subprocess.Popen(
                 cmd,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=1800  # 30 minute timeout for conversion
+                bufsize=1,
+                universal_newlines=True
             )
             
-            if result.returncode == 0:
+            logger.info(f"CHD conversion: process started with PID {process.pid}")
+            
+            # Monitor process with periodic updates
+            stdout_lines = []
+            stderr_lines = []
+            last_update = time.time()
+            
+            while process.poll() is None:
+                # Check for timeout
+                if time.time() - start_time > 1800:  # 30 minutes
+                    logger.error("CHD conversion: timeout reached, terminating process")
+                    process.terminate()
+                    time.sleep(5)
+                    if process.poll() is None:
+                        logger.error("CHD conversion: process didn't terminate, killing it")
+                        process.kill()
+                    raise subprocess.TimeoutExpired(cmd, 1800)
+                
+                # Read available output
+                try:
+                    stdout_line = process.stdout.readline()
+                    if stdout_line:
+                        stdout_lines.append(stdout_line.strip())
+                        logger.debug(f"CHD conversion stdout: {stdout_line.strip()}")
+                    
+                    stderr_line = process.stderr.readline()
+                    if stderr_line:
+                        stderr_lines.append(stderr_line.strip())
+                        logger.debug(f"CHD conversion stderr: {stderr_line.strip()}")
+                        
+                except:
+                    pass
+                
+                # Periodic status update
+                current_time = time.time()
+                if current_time - last_update >= 10:  # Every 10 seconds
+                    elapsed = current_time - start_time
+                    logger.info(f"CHD conversion: still running... elapsed time: {elapsed:.1f}s")
+                    
+                    # Check if output file is being created/growing
+                    if chd_file.exists():
+                        chd_size = chd_file.stat().st_size
+                        logger.info(f"CHD conversion: output file size: {chd_size} bytes")
+                        
+                        # Update progress if we have a callback
+                        if progress_callback and rom:
+                            convert_progress = DownloadProgress(rom, chd_size, chd_size, operation="converting")
+                            progress_callback(convert_progress)
+                    
+                    last_update = current_time
+                
+                time.sleep(0.1)  # Small delay to prevent busy waiting
+            
+            # Get final output
+            remaining_stdout, remaining_stderr = process.communicate()
+            if remaining_stdout:
+                stdout_lines.extend(remaining_stdout.strip().split('\n'))
+            if remaining_stderr:
+                stderr_lines.extend(remaining_stderr.strip().split('\n'))
+            
+            returncode = process.returncode
+            stdout_text = '\n'.join(stdout_lines)
+            stderr_text = '\n'.join(stderr_lines)
+            
+            elapsed_time = time.time() - start_time
+            logger.info(f"CHD conversion: process completed in {elapsed_time:.1f}s with return code {returncode}")
+            
+            if returncode == 0:
                 logger.info(f"Successfully converted {source_file.name} to CHD format")
+                
+                if chd_file.exists():
+                    chd_size = chd_file.stat().st_size
+                    logger.info(f"CHD conversion: output file size: {chd_size} bytes")
+                else:
+                    logger.error("CHD conversion: output file does not exist despite successful return code")
+                    return None
                 
                 # Update progress to show conversion completed
                 if progress_callback and rom:
-                    chd_size = chd_file.stat().st_size if chd_file.exists() else 0
                     convert_complete_progress = DownloadProgress(rom, chd_size, chd_size, operation="converted")
                     progress_callback(convert_complete_progress)
                 
                 # Remove original file after successful conversion
+                logger.info(f"CHD conversion: removing original file {source_file}")
                 source_file.unlink(missing_ok=True)
                 
                 # Also remove associated CUE file if we converted a BIN file
@@ -650,33 +749,44 @@ class DownloadManager:
                     cue_file = source_file.with_suffix('.cue')
                     if cue_file.exists():
                         cue_file.unlink(missing_ok=True)
-                        logger.debug(f"Removed associated CUE file: {cue_file}")
+                        logger.info(f"CHD conversion: removed associated CUE file: {cue_file}")
                 
                 return chd_file
                 
             else:
-                logger.error(f"CHD conversion failed for {source_file.name}")
-                logger.error(f"chdman stdout: {result.stdout}")
-                logger.error(f"chdman stderr: {result.stderr}")
+                logger.error(f"CHD conversion failed for {source_file.name} with return code {returncode}")
+                logger.error(f"CHD conversion stdout: {stdout_text}")
+                logger.error(f"CHD conversion stderr: {stderr_text}")
                 
                 # If createcd failed for ISO/BIN, try createdvd
                 if source_file.suffix.lower() in ['.iso', '.bin'] and 'createcd' in cmd:
-                    logger.info("Retrying with createdvd command...")
-                    cmd = [str(chdman_path), "createdvd", "-i", str(source_file), "-o", str(chd_file)]
+                    logger.info("CHD conversion: retrying with createdvd command...")
+                    cmd_dvd = [str(chdman_path), "createdvd", "-i", str(source_file), "-o", str(chd_file)]
+                    logger.info(f"CHD conversion: executing DVD command: {' '.join(cmd_dvd)}")
                     
+                    # Clean up failed CHD file before retry
+                    if chd_file.exists():
+                        chd_file.unlink(missing_ok=True)
+                    
+                    start_time = time.time()
                     result = subprocess.run(
-                        cmd,
+                        cmd_dvd,
                         capture_output=True,
                         text=True,
                         timeout=1800
                     )
+                    elapsed_time = time.time() - start_time
+                    logger.info(f"CHD conversion (DVD): completed in {elapsed_time:.1f}s with return code {result.returncode}")
                     
                     if result.returncode == 0:
                         logger.info(f"Successfully converted {source_file.name} to CHD format using createdvd")
                         
+                        if chd_file.exists():
+                            chd_size = chd_file.stat().st_size
+                            logger.info(f"CHD conversion (DVD): output file size: {chd_size} bytes")
+                        
                         # Update progress to show conversion completed
                         if progress_callback and rom:
-                            chd_size = chd_file.stat().st_size if chd_file.exists() else 0
                             convert_complete_progress = DownloadProgress(rom, chd_size, chd_size, operation="converted")
                             progress_callback(convert_complete_progress)
                         
@@ -684,24 +794,28 @@ class DownloadManager:
                         return chd_file
                     else:
                         logger.error(f"CHD conversion with createdvd also failed for {source_file.name}")
-                        logger.error(f"chdman stdout: {result.stdout}")
-                        logger.error(f"chdman stderr: {result.stderr}")
+                        logger.error(f"CHD conversion (DVD) stdout: {result.stdout}")
+                        logger.error(f"CHD conversion (DVD) stderr: {result.stderr}")
                 
                 # Clean up failed CHD file
                 if chd_file.exists():
+                    logger.info(f"CHD conversion: cleaning up failed output file {chd_file}")
                     chd_file.unlink(missing_ok=True)
                 
                 return None
                 
         except subprocess.TimeoutExpired:
-            logger.error(f"CHD conversion timed out for {source_file.name}")
+            logger.error(f"CHD conversion timed out for {source_file.name} after 30 minutes")
             if chd_file.exists():
+                logger.info(f"CHD conversion: cleaning up timeout output file {chd_file}")
                 chd_file.unlink(missing_ok=True)
             return None
             
         except Exception as e:
             logger.error(f"Error during CHD conversion for {source_file.name}: {e}")
+            logger.exception("CHD conversion exception details:")
             if chd_file.exists():
+                logger.info(f"CHD conversion: cleaning up error output file {chd_file}")
                 chd_file.unlink(missing_ok=True)
             return None
     

@@ -92,24 +92,44 @@ class MainWindow:
         self.platform_combo.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=(10, 0), pady=(0, 10))
         self.platform_combo.bind('<<ComboboxSelected>>', self.on_platform_selected)
         
-        # Region filter frame
-        region_frame = ttk.LabelFrame(main_frame, text="Region Filter", padding="5")
-        region_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+        # Filters frame
+        filters_frame = ttk.LabelFrame(main_frame, text="Filters", padding="5")
+        filters_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+        
+        # Region filter section
+        ttk.Label(filters_frame, text="Regions:").grid(row=0, column=0, sticky=tk.W, padx=(0, 10))
         
         # Initialize region filter checkboxes
         regions = ['USA', 'Europe', 'Japan', 'World', 'English', 'Unknown']
-        col = 0
+        col = 1
         for region in regions:
             var = tk.BooleanVar()
-            # Default to USA and Unknown selected as requested
-            if region in ['USA', 'Unknown']:
+            # Default to only USA selected
+            if region == 'USA':
                 var.set(True)
             self.region_filters[region] = var
             
-            cb = ttk.Checkbutton(region_frame, text=region, variable=var, 
+            cb = ttk.Checkbutton(filters_frame, text=region, variable=var, 
                                command=self.apply_region_filter)
             cb.grid(row=0, column=col, sticky=tk.W, padx=(0, 10))
             col += 1
+        
+        # Content filter section
+        ttk.Label(filters_frame, text="Content:").grid(row=1, column=0, sticky=tk.W, padx=(0, 10), pady=(10, 0))
+        
+        # Initialize content filter checkboxes
+        self.ignore_demo_var = tk.BooleanVar()
+        self.ignore_demo_var.set(True)  # Default to ignoring demos
+        self.ignore_beta_var = tk.BooleanVar()
+        self.ignore_beta_var.set(True)  # Default to ignoring betas
+        
+        ignore_demo_cb = ttk.Checkbutton(filters_frame, text="Ignore Demos", variable=self.ignore_demo_var,
+                                       command=self.apply_region_filter)
+        ignore_demo_cb.grid(row=1, column=1, sticky=tk.W, padx=(0, 10), pady=(10, 0))
+        
+        ignore_beta_cb = ttk.Checkbutton(filters_frame, text="Ignore Betas", variable=self.ignore_beta_var,
+                                       command=self.apply_region_filter)
+        ignore_beta_cb.grid(row=1, column=2, sticky=tk.W, padx=(0, 10), pady=(10, 0))
         
         # Control buttons frame
         control_frame = ttk.Frame(main_frame)
@@ -196,6 +216,10 @@ class MainWindow:
         self.current_target_path = None
         self.current_extract_archives = False
         self.update_button_states()
+        
+        # Automatically start scanning for ROMs when platform is selected
+        if self.current_platform:
+            self.scan_roms()
     
     def scan_roms(self):
         """Scan for available ROMs on the selected platform."""
@@ -358,6 +382,34 @@ class MainWindow:
         region_time = time.time() - region_start
         logger.info(f"Region filtering completed in {region_time:.2f}s, {len(self.filtered_roms)} ROMs after region filter")
         
+        # Apply content filters (demo/beta)
+        content_start = time.time()
+        if self.ignore_demo_var.get() or self.ignore_beta_var.get():
+            filtered_count_before = len(self.filtered_roms)
+            
+            def should_ignore_rom(rom):
+                name_lower = rom.name.lower()
+                clean_name_lower = rom.clean_name.lower()
+                
+                if self.ignore_demo_var.get():
+                    demo_patterns = ['demo', 'kiosk', 'sample', 'promo']
+                    if any(pattern in name_lower or pattern in clean_name_lower for pattern in demo_patterns):
+                        return True
+                
+                if self.ignore_beta_var.get():
+                    beta_patterns = ['beta', 'alpha', 'prototype', 'test', 'debug']
+                    if any(pattern in name_lower or pattern in clean_name_lower for pattern in beta_patterns):
+                        return True
+                        
+                return False
+            
+            self.filtered_roms = [rom for rom in self.filtered_roms if not should_ignore_rom(rom)]
+            filtered_count = filtered_count_before - len(self.filtered_roms)
+            logger.info(f"Content filtering removed {filtered_count} demo/beta ROMs")
+        
+        content_time = time.time() - content_start
+        logger.info(f"Content filtering completed in {content_time:.2f}s, {len(self.filtered_roms)} ROMs after content filter")
+        
         # Update the display
         logger.info("Clearing existing ROM list display...")
         clear_start = time.time()
@@ -367,6 +419,9 @@ class MainWindow:
         clear_time = time.time() - clear_start
         logger.info(f"ROM list cleared in {clear_time:.2f}s")
         
+        # Skip preloading file sizes/types for performance - just use existing ROM set
+        logger.info(f"Using existing ROM set for fast installation checks")
+        
         # Add filtered ROMs to the tree
         logger.info(f"Adding {len(self.filtered_roms)} ROMs to tree view...")
         tree_start = time.time()
@@ -375,19 +430,14 @@ class MainWindow:
             if i % 50 == 0:  # Log progress every 50 ROMs
                 logger.info(f"Processing ROM {i+1}/{len(self.filtered_roms)}: {rom.clean_name}")
             
-            # Check if ROM is installed and get detailed info
-            installed_start = time.time()
-            is_installed, installed_size, installed_type = self._get_rom_installed_info(rom)
-            installed_time = time.time() - installed_start
-            
-            if installed_time > 0.1:  # Log slow installed checks
-                logger.warning(f"Slow installed check for {rom.clean_name}: {installed_time:.2f}s")
+            # Check if ROM is installed using fast lookup (no file sizes to avoid network delays)
+            is_installed = self._is_rom_installed(rom)
             
             # Determine display values based on installation status
             if is_installed:
                 installed_text = "Yes"
-                display_size = installed_size
-                display_type = installed_type
+                display_size = ""  # Disabled for performance
+                display_type = ""  # Disabled for performance
                 tags = (rom.name, 'installed')
             else:
                 installed_text = "No"
@@ -675,6 +725,88 @@ class MainWindow:
             return False, "", ""
         
         return self.rom_filter.get_installed_rom_info(rom, self.current_target_path)
+    
+    def _get_rom_installed_info_fast(self, rom: RomInfo) -> tuple[bool, str, str]:
+        """Get detailed information about an installed ROM using fast lookup.
+        
+        Args:
+            rom: ROM information object.
+            
+        Returns:
+            Tuple of (is_installed, file_size, file_type).
+        """
+        if not self.current_target_path:
+            return False, "", ""
+        
+        # Use the fast cached approach
+        normalized_name = self.rom_filter._normalize_name(rom.clean_name)
+        
+        # Check if we already have this in our preloaded cache
+        if hasattr(self, '_preloaded_roms') and normalized_name in self._preloaded_roms:
+            rom_info = self._preloaded_roms[normalized_name]
+            return True, rom_info['size'], rom_info['type']
+        
+        # Fall back to checking if it's in the existing ROMs set (fast)
+        if normalized_name in self.existing_roms:
+            return True, "", ""  # We know it exists but don't have size/type info
+        
+        return False, "", ""
+    
+    def _preload_rom_installation_info(self):
+        """Preload installation info for all ROMs in one batch operation."""
+        self._preloaded_roms = {}
+        
+        if not self.current_target_path or not self.current_target_path.exists():
+            return
+        
+        try:
+            logger.info(f"Scanning directory for installed ROMs: {self.current_target_path}")
+            
+            # Get all ROM files in one directory scan
+            rom_extensions = {'.rvz', '.zip', '.7z', '.iso', '.gcm', '.bin', '.cue', '.chd'}
+            rom_files = []
+            
+            # Single directory scan to get all ROM files
+            for file_path in self.current_target_path.iterdir():
+                file_name = file_path.name
+                if any(file_name.lower().endswith(ext) for ext in rom_extensions):
+                    rom_files.append(file_path)
+            
+            logger.info(f"Found {len(rom_files)} ROM files, getting file info...")
+            
+            # Process all ROM files and build the cache
+            for i, file_path in enumerate(rom_files):
+                if i % 50 == 0 and i > 0:
+                    logger.info(f"Processing installed ROM {i}/{len(rom_files)}")
+                
+                try:
+                    # Normalize the name for lookup
+                    normalized_name = self.rom_filter._normalize_name(file_path.stem)
+                    
+                    # Get file size and type
+                    size_bytes = file_path.stat().st_size
+                    size_str = self._format_bytes(size_bytes)
+                    file_type = file_path.suffix.upper().replace('.', '')
+                    
+                    # Store in preloaded cache
+                    self._preloaded_roms[normalized_name] = {
+                        'size': size_str,
+                        'type': file_type,
+                        'filename': file_path.name
+                    }
+                    
+                except (OSError, PermissionError) as e:
+                    logger.debug(f"Could not access file {file_path.name}: {e}")
+                    continue
+                except Exception as e:
+                    logger.warning(f"Error processing file {file_path.name}: {e}")
+                    continue
+            
+            logger.info(f"Preloaded info for {len(self._preloaded_roms)} installed ROMs")
+            
+        except Exception as e:
+            logger.error(f"Error preloading ROM installation info: {e}")
+            self._preloaded_roms = {}
     
     def update_button_states(self):
         """Update button states based on current application state."""

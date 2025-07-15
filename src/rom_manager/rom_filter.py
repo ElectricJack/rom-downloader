@@ -26,6 +26,12 @@ class RomFilter:
             preferred_regions: List of preferred regions in order of preference.
         """
         self.preferred_regions = preferred_regions or ["USA", "US", "English", "En", "World", "Europe", "Japan"]
+        # Cache for installed ROM information to avoid repeated network scans
+        self._installed_cache = {}
+        self._cache_directory = None
+        # Cache directory contents to avoid repeated directory scans
+        self._directory_cache = {}
+        self._directory_cache_time = None
     
     def filter_and_deduplicate(self, roms: List[RomInfo]) -> List[RomInfo]:
         """Filter ROMs by removing duplicates and applying region preferences.
@@ -208,30 +214,55 @@ class RomFilter:
             logger.error(f"Error checking if target path is directory: {e}")
             return existing_roms
         
-        # Try to list directory contents
+        # Try to list directory contents with optimized network scanning
         try:
-            logger.info("Starting directory listing...")
+            logger.info("Starting optimized directory listing...")
             iterdir_start = time.time()
             
+            # Get all directory entries at once to minimize network calls
+            logger.info("Fetching directory entries...")
+            try:
+                entries = list(target_directory.iterdir())
+                fetch_time = time.time() - iterdir_start
+                logger.info(f"Fetched {len(entries)} directory entries in {fetch_time:.2f}s")
+            except Exception as e:
+                logger.error(f"Failed to fetch directory entries: {e}")
+                return existing_roms
+            
+            # Process entries using filename-based filtering (no additional network calls)
+            process_start = time.time()
             file_count = 0
-            for file_path in target_directory.iterdir():
-                file_count += 1
-                if file_count % 100 == 0:  # Log progress every 100 files
-                    logger.info(f"Processed {file_count} files so far...")
+            rom_extensions = {'.rvz', '.zip', '.7z', '.iso', '.gcm', '.bin', '.cue', '.chd'}
+            
+            for i, entry in enumerate(entries):
+                if i % 100 == 0 and i > 0:  # Log progress every 100 entries
+                    logger.info(f"Processed {i}/{len(entries)} entries, found {len(existing_roms)} ROMs so far...")
                 
-                if file_path.is_file():
-                    # Normalize the filename for comparison
-                    normalized_name = self._normalize_name(file_path.stem)
+                entry_name = entry.name
+                
+                # Filter by file extension to avoid network calls to is_file()
+                # This is much faster than checking file_path.is_file() over the network
+                has_rom_extension = any(entry_name.lower().endswith(ext) for ext in rom_extensions)
+                
+                if has_rom_extension and not entry_name.startswith('.'):
+                    file_count += 1
+                    # Normalize the filename for comparison (remove extension)
+                    stem = entry_name
+                    if '.' in stem:
+                        stem = '.'.join(stem.split('.')[:-1])  # Remove last extension
+                    
+                    normalized_name = self._normalize_name(stem)
                     existing_roms.add(normalized_name)
                     
                     if len(existing_roms) <= 5:  # Log first 5 existing ROMs
-                        logger.info(f"Found existing ROM: {file_path.name}")
+                        logger.info(f"Found existing ROM: {entry_name}")
                     elif len(existing_roms) % 50 == 0:  # Log progress every 50 ROMs
                         logger.info(f"Found {len(existing_roms)} existing ROMs so far...")
             
-            iterdir_time = time.time() - iterdir_start
-            logger.info(f"Directory listing completed in {iterdir_time:.2f}s, processed {file_count} total files")
-            logger.info(f"Found {len(existing_roms)} existing ROMs in {target_directory}")
+            process_time = time.time() - process_start
+            total_time = time.time() - iterdir_start
+            logger.info(f"Entry processing completed in {process_time:.2f}s")
+            logger.info(f"Total scan time: {total_time:.2f}s, processed {len(entries)} entries, found {len(existing_roms)} ROM files")
             
         except PermissionError as e:
             logger.error(f"Permission denied accessing {target_directory}: {e}")
@@ -308,28 +339,106 @@ class RomFilter:
             logger.debug(f"Target directory does not exist: {target_directory}")
             return False, "", ""
         
+        # Clear cache if directory changed
+        if self._cache_directory != target_directory:
+            logger.debug(f"Directory changed, clearing installed ROM cache")
+            self._installed_cache.clear()
+            self._directory_cache.clear()
+            self._cache_directory = target_directory
+            self._directory_cache_time = None
+        
         normalized_name = self._normalize_name(rom.clean_name)
+        
+        # Check cache first
+        if normalized_name in self._installed_cache:
+            logger.debug(f"Using cached result for ROM: {rom.clean_name}")
+            return self._installed_cache[normalized_name]
+        
         logger.debug(f"Checking installed status for ROM: {rom.clean_name} (normalized: {normalized_name})")
         
+        # Use a more efficient approach for network drives
+        rom_extensions = ['.rvz', '.zip', '.7z', '.iso', '.gcm', '.bin', '.cue', '.chd']
+        
         try:
-            file_count = 0
-            for file_path in target_directory.iterdir():
-                if file_path.is_file():
-                    file_count += 1
-                    file_normalized = self._normalize_name(file_path.stem)
-                    if file_normalized == normalized_name:
-                        logger.debug(f"Found matching installed ROM: {file_path.name}")
-                        # Get file size
-                        size_bytes = file_path.stat().st_size
-                        size_str = self._format_bytes(size_bytes)
-                        
-                        # Get file type (extension without dot)
-                        file_type = file_path.suffix.upper().replace('.', '')
-                        
-                        return True, size_str, file_type
+            # Try direct file matching first (much faster for network drives)
+            for ext in rom_extensions:
+                # Try various possible filenames
+                possible_names = [
+                    rom.clean_name + ext,
+                    rom.name.replace('.zip', ext).replace('.7z', ext),
+                ]
+                
+                for possible_name in possible_names:
+                    possible_path = target_directory / possible_name
+                    try:
+                        if possible_path.exists():
+                            logger.debug(f"Found matching installed ROM via direct lookup: {possible_name}")
+                            size_bytes = possible_path.stat().st_size
+                            size_str = self._format_bytes(size_bytes)
+                            file_type = ext.upper().replace('.', '')
+                            result = (True, size_str, file_type)
+                            # Cache the result
+                            self._installed_cache[normalized_name] = result
+                            return result
+                    except (OSError, PermissionError):
+                        # Skip files we can't access
+                        continue
             
-            if file_count > 100:
-                logger.warning(f"Large number of files in target directory ({file_count}), this may slow down scanning")
+            # Fallback to directory scanning using cached directory contents
+            logger.debug(f"Direct lookup failed, checking cached directory contents for {rom.clean_name}")
+            
+            # Build or use cached directory contents
+            if not self._directory_cache:
+                logger.debug(f"Building directory cache for {target_directory}")
+                import time
+                cache_start = time.time()
+                
+                try:
+                    rom_extensions_set = {ext.lower() for ext in rom_extensions}
+                    
+                    # Scan directory once and cache all ROM file info
+                    for file_path in target_directory.iterdir():
+                        file_name = file_path.name
+                        # Check extension first to avoid expensive network calls
+                        if file_name.lower().endswith(tuple(rom_extensions_set)):
+                            try:
+                                # Get file info and cache it by normalized name
+                                file_normalized = self._normalize_name(file_path.stem)
+                                size_bytes = file_path.stat().st_size
+                                size_str = self._format_bytes(size_bytes)
+                                file_type = file_path.suffix.upper().replace('.', '')
+                                
+                                # Store in directory cache
+                                self._directory_cache[file_normalized] = {
+                                    'size': size_str,
+                                    'type': file_type,
+                                    'filename': file_name
+                                }
+                                
+                            except (OSError, PermissionError):
+                                # Skip files we can't access
+                                continue
+                    
+                    cache_time = time.time() - cache_start
+                    logger.info(f"Directory cache built in {cache_time:.2f}s, cached {len(self._directory_cache)} ROM files")
+                    self._directory_cache_time = time.time()
+                    
+                except Exception as e:
+                    logger.error(f"Error building directory cache: {e}")
+                    self._directory_cache = {}
+            
+            # Check cached directory contents
+            if normalized_name in self._directory_cache:
+                cached_info = self._directory_cache[normalized_name]
+                logger.debug(f"Found matching installed ROM in cache: {cached_info['filename']}")
+                result = (True, cached_info['size'], cached_info['type'])
+                # Cache the result in installed cache too
+                self._installed_cache[normalized_name] = result
+                return result
+            
+            # Cache negative result to avoid repeated scans
+            result = (False, "", "")
+            self._installed_cache[normalized_name] = result
                 
         except Exception as e:
             logger.error(f"Error getting installed ROM info for {rom.clean_name}: {e}")

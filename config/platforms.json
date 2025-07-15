@@ -15,6 +15,142 @@
       "file_extensions": [".rvz", ".zip", ".7z"],
       "file_pattern": ".*\\.(rvz|zip|7z)$",
       "extract_archives": true
+    },
+    "Wii": {
+      "name": "Nintendo Wii",
+      "url": "https://myrient.erista.me/files/Redump/Nintendo%20-%20Wii%20-%20NKit%20RVZ%20[zstd-19-128k]/",
+      "target_folder": "wii",
+      "file_extensions": [".rvz", ".zip", ".7z"],
+      "file_pattern": ".*\\.(rvz|zip|7z)$",
+      "extract_archives": true
+    },
+    "WiiU": {
+      "name": "Nintendo Wii U",
+      "url": "https://myrient.erista.me/files/Redump/Nintendo%20-%20Wii%20U%20-%20WUX/",
+      "target_folder": "wiiu",
+      "file_extensions": [".wux", ".wud", ".zip", ".7z"],
+      "file_pattern": ".*\\.(wux|wud|zip|7z)$",
+      "extract_archives": true
+    },
+    "PlayStation": {
+      "name": "Sony PlayStation",
+      "url": "https://myrient.erista.me/files/Redump/Sony%20-%20PlayStation/",
+      "target_folder": "psx",
+      "file_extensions": [".bin", ".cue", ".chd", ".zip", ".7z"],
+      "file_pattern": ".*\\.(bin|cue|chd|zip|7z)$",
+      "extract_archives": true
+    },
+    "PlayStation2": {
+      "name": "Sony PlayStation 2",
+      "url": "https://myrient.erista.me/files/Redump/Sony%20-%20PlayStation%202/",
+      "target_folder": "ps2",
+      "file_extensions": [".iso", ".chd", ".zip", ".7z"],
+      "file_pattern": ".*\\.(iso|chd|zip|7z)$",
+      "extract_archives": true
+    },
+    "PlayStation3": {
+      "name": "Sony PlayStation 3",
+      "url": "https://myrient.erista.me/files/Redump/Sony%20-%20PlayStation%203/",
+      "target_folder": "ps3",
+      "file_extensions": [".iso", ".chd", ".zip", ".7z"],
+      "file_pattern": ".*\\.(iso|chd|zip|7z)$",
+      "extract_archives": true
+    },
+    "PSP": {
+      "name": "Sony PlayStation Portable",
+      "url": "https://myrient.erista.me/files/Redump/Sony%20-%20PlayStation%20Portable/",
+      "target_folder": "psp",
+      "file_extensions": [".iso", ".zip", ".7z"],
+      "file_pattern": ".*\\.(iso|zip|7z)$",
+      "extract_archives": true
+    },
+    "Xbox": {
+      "name": "Microsoft Xbox",
+      "url": "https://myrient.erista.me/files/Redump/Microsoft%20-%20Xbox/",
+      "target_folder": "xbox",
+      "file_extensions": [".iso", ".zip", ".7z"],
+      "file_pattern": ".*\\.(iso|zip|7z)$",
+      "extract_archives": true
+    },
+    "Xbox360": {
+      "name": "Microsoft Xbox 360",
+      "url": "https://myrient.erista.me/files/Redump/Microsoft%20-%20Xbox%20360/",
+      "target_folder": "xbox360",
+      "file_extensions": [".iso", ".zip", ".7z"],
+      "file_pattern": ".*\\.(iso|zip|7z)$",
+      "extract_archives": true
+    },
+    "Dreamcast": {
+      "name": "Sega Dreamcast",
+      "url": "https://myrient.erista.me/files/Redump/Sega%20-%20Dreamcast/",
+      "target_folder": "dreamcast",
+      "file_extensions": [".cdi", ".gdi", ".chd", ".zip", ".7z"],
+      "file_pattern": ".*\\.(cdi|gdi|chd|zip|7z)$",
+      "extract_archives": true
+    },
+    "Saturn": {
+      "name": "Sega Saturn",
+      "url": "https://myrient.erista.me/files/Redump/Sega%20-%20Saturn/",
+      "target_folder": "saturn",
+      "file_extensions": [".bin", ".cue", ".zip", ".7z"],
+      "file_pattern": ".*\\.(bin|cue|zip|7z)$",
+      "extract_archives": true
+    },
+    "SegaCD": {
+      "name": "Sega CD / Mega CD",
+      "url": "https://myrient.erista.me/files/Redump/Sega%20-%20Mega%20CD%20-%20Sega%20CD/",
+      "target_folder": "segacd",
+      "file_extensions": [".bin", ".cue", ".zip", ".7z"],
+      "file_pattern": ".*\\.(bin|cue|zip|7z)$",
+      "extract_archives": true
+    },
+    "3DO": {
+      "name": "Panasonic 3DO",
+      "url": "https://myrient.erista.me/files/Redump/Panasonic%20-%203DO%20Interactive%20Multiplayer/",
+      "target_folder": "3do",
+      "file_extensions": [".bin", ".cue", ".zip", ".7z"],
+      "file_pattern": ".*\\.(bin|cue|zip|7z)$",
+      "extract_archives": true
+    },
+    "CDi": {
+      "name": "Philips CD-i",
+      "url": "https://myrient.erista.me/files/Redump/Philips%20-%20CD-i/",
+      "target_folder": "cdi",
+      "file_extensions": [".bin", ".cue", ".zip", ".7z"],
+      "file_pattern": ".*\\.(bin|cue|zip|7z)$",
+      "extract_archives": true
+    },
+    "NeoGeoCD": {
+      "name": "SNK Neo Geo CD",
+      "url": "https://myrient.erista.me/files/Redump/SNK%20-%20Neo%20Geo%20CD/",
+      "target_folder": "neogeocd",
+      "file_extensions": [".bin", ".cue", ".zip", ".7z"],
+      "file_pattern": ".*\\.(bin|cue|zip|7z)$",
+      "extract_archives": true
+    },
+    "PCEngine": {
+      "name": "NEC PC Engine CD / TurboGrafx CD",
+      "url": "https://myrient.erista.me/files/Redump/NEC%20-%20PC%20Engine%20CD%20-%20TurboGrafx%20CD/",
+      "target_folder": "pcenginecd",
+      "file_extensions": [".bin", ".cue", ".zip", ".7z"],
+      "file_pattern": ".*\\.(bin|cue|zip|7z)$",
+      "extract_archives": true
+    },
+    "PCFX": {
+      "name": "NEC PC-FX",
+      "url": "https://myrient.erista.me/files/Redump/NEC%20-%20PC-FX/",
+      "target_folder": "pcfx",
+      "file_extensions": [".bin", ".cue", ".zip", ".7z"],
+      "file_pattern": ".*\\.(bin|cue|zip|7z)$",
+      "extract_archives": true
+    },
+    "AtariJaguar": {
+      "name": "Atari Jaguar CD",
+      "url": "https://myrient.erista.me/files/Redump/Atari%20-%20Jaguar%20CD%20Interactive%20Multimedia%20System/",
+      "target_folder": "atarijaguarcd",
+      "file_extensions": [".bin", ".cue", ".zip", ".7z"],
+      "file_pattern": ".*\\.(bin|cue|zip|7z)$",
+      "extract_archives": true
     }
   }
 }

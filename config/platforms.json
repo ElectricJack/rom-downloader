@@ -92,24 +92,24 @@
       "name": "Sega Saturn",
       "url": "https://myrient.erista.me/files/Redump/Sega%20-%20Saturn/",
       "target_folder": "saturn",
-      "file_extensions": [".bin", ".cue", ".zip", ".7z"],
-      "file_pattern": ".*\\.(bin|cue|zip|7z)$",
+      "file_extensions": [".bin", ".cue", ".chd", ".zip", ".7z"],
+      "file_pattern": ".*\\.(bin|cue|chd|zip|7z)$",
       "extract_archives": true
     },
     "SegaCD": {
       "name": "Sega CD / Mega CD",
       "url": "https://myrient.erista.me/files/Redump/Sega%20-%20Mega%20CD%20-%20Sega%20CD/",
       "target_folder": "segacd",
-      "file_extensions": [".bin", ".cue", ".zip", ".7z"],
-      "file_pattern": ".*\\.(bin|cue|zip|7z)$",
+      "file_extensions": [".bin", ".cue", ".chd", ".zip", ".7z"],
+      "file_pattern": ".*\\.(bin|cue|chd|zip|7z)$",
       "extract_archives": true
     },
     "3DO": {
       "name": "Panasonic 3DO",
       "url": "https://myrient.erista.me/files/Redump/Panasonic%20-%203DO%20Interactive%20Multiplayer/",
       "target_folder": "3do",
-      "file_extensions": [".bin", ".cue", ".zip", ".7z"],
-      "file_pattern": ".*\\.(bin|cue|zip|7z)$",
+      "file_extensions": [".bin", ".cue", ".chd", ".zip", ".7z"],
+      "file_pattern": ".*\\.(bin|cue|chd|zip|7z)$",
       "extract_archives": true
     },
     "CDi": {
@@ -132,8 +132,8 @@
       "name": "NEC PC Engine CD / TurboGrafx CD",
       "url": "https://myrient.erista.me/files/Redump/NEC%20-%20PC%20Engine%20CD%20-%20TurboGrafx%20CD/",
       "target_folder": "pcenginecd",
-      "file_extensions": [".bin", ".cue", ".zip", ".7z"],
-      "file_pattern": ".*\\.(bin|cue|zip|7z)$",
+      "file_extensions": [".bin", ".cue", ".chd", ".zip", ".7z"],
+      "file_pattern": ".*\\.(bin|cue|chd|zip|7z)$",
       "extract_archives": true
     },
     "PCFX": {

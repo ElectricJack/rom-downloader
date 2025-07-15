@@ -1,0 +1,1 @@
+sudo mount -t drvfs '\\BATOCERA\share' /mnt/batocera -o uid=1000,gid=1000,rw

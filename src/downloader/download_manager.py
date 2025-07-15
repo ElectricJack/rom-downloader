@@ -12,6 +12,7 @@ import threading
 import zipfile
 import py7zr
 import queue
+import subprocess
 from typing import List, Callable, Optional
 from pathlib import Path
 import requests
@@ -51,7 +52,16 @@ class DownloadProgress:
             self.percentage = (current_bytes / total_bytes) * 100
     
     def __str__(self):
-        operation_text = "Copying" if self.operation == "copying" else "Downloading"
+        operation_map = {
+            "copying": "Copying",
+            "downloading": "Downloading", 
+            "extracting": "Extracting",
+            "extracted": "Extracted",
+            "converting": "Converting to CHD",
+            "converted": "Converted to CHD"
+        }
+        operation_text = operation_map.get(self.operation, "Processing")
+        
         if self.total_bytes > 0:
             return f"{operation_text} {self.rom.clean_name}: {self.percentage:.1f}% ({self._format_bytes(self.current_bytes)}/{self._format_bytes(self.total_bytes)})"
         else:
@@ -377,15 +387,29 @@ class DownloadManager:
                 # No extraction needed, move original file
                 files_to_move = [(temp_file, final_file)]
             
-            # Move files to final destination with timeout protection
+            # CHD conversion step - convert eligible files before network copy
+            converted_files = []
             for src_file, dst_file in files_to_move:
                 # Skip if destination already exists
                 if dst_file.exists():
                     logger.info(f"File already exists, skipping: {dst_file}")
                     src_file.unlink(missing_ok=True)
                     continue
-                    
-                logger.info(f"Moving {src_file} to {dst_file}")
+                
+                # Try CHD conversion if platform supports it
+                chd_file = self._convert_to_chd(src_file, platform_name, progress_callback, rom)
+                if chd_file:
+                    # Update destination to CHD file
+                    chd_dst_file = dst_file.parent / chd_file.name
+                    converted_files.append((chd_file, chd_dst_file))
+                    logger.info(f"Converted to CHD: {chd_file.name}")
+                else:
+                    # No conversion, use original file
+                    converted_files.append((src_file, dst_file))
+                    logger.info(f"Moving {src_file} to {dst_file}")
+            
+            # Update files_to_move with converted files
+            files_to_move = converted_files
             
             def queue_for_copy(src_file, dst_file, platform_name):
                 """Queue file for network copying or copy locally immediately."""
@@ -538,6 +562,148 @@ class DownloadManager:
             extracted_files = []
         
         return extracted_files
+    
+    def _convert_to_chd(self, source_file: Path, platform_name: str, 
+                       progress_callback: Optional[Callable[[DownloadProgress], None]] = None,
+                       rom: Optional[RomInfo] = None) -> Optional[Path]:
+        """Convert a ROM file to CHD format using chdman.exe.
+        
+        Args:
+            source_file: Path to the source ROM file.
+            platform_name: Name of the platform for CHD format detection.
+            progress_callback: Optional callback for progress updates.
+            rom: ROM info for progress updates.
+            
+        Returns:
+            Path to the converted CHD file, or None if conversion failed.
+        """
+        # Check if conversion is needed and supported
+        if not self.config_manager or not self.config_manager.supports_chd(platform_name):
+            return None
+            
+        # Skip if already CHD format
+        if source_file.suffix.lower() == '.chd':
+            return None
+            
+        # Check if file format is convertible to CHD
+        convertible_extensions = ['.bin', '.cue', '.iso', '.cdi', '.gdi']
+        if source_file.suffix.lower() not in convertible_extensions:
+            return None
+            
+        # Find chdman.exe in tools folder
+        tools_path = Path(__file__).parent.parent.parent / "tools"
+        chdman_path = tools_path / "chdman.exe"
+        
+        if not chdman_path.exists():
+            logger.warning(f"chdman.exe not found at {chdman_path}, skipping CHD conversion")
+            return None
+            
+        # Generate CHD output filename
+        chd_file = source_file.parent / f"{source_file.stem}.chd"
+        
+        try:
+            logger.info(f"Converting {source_file.name} to CHD format...")
+            
+            # Update progress to show conversion status
+            if progress_callback and rom:
+                convert_progress = DownloadProgress(rom, 0, 0, operation="converting")
+                progress_callback(convert_progress)
+            
+            # Determine chdman command based on file type
+            if source_file.suffix.lower() == '.cue':
+                # For CUE files, use createcd command
+                cmd = [str(chdman_path), "createcd", "-i", str(source_file), "-o", str(chd_file)]
+            elif source_file.suffix.lower() in ['.iso', '.bin']:
+                # For ISO/BIN files, try createcd first (for CD images), fallback to createdvd
+                cmd = [str(chdman_path), "createcd", "-i", str(source_file), "-o", str(chd_file)]
+            elif source_file.suffix.lower() in ['.cdi', '.gdi']:
+                # For CDI/GDI files, use createcd
+                cmd = [str(chdman_path), "createcd", "-i", str(source_file), "-o", str(chd_file)]
+            else:
+                logger.warning(f"Unsupported file type for CHD conversion: {source_file.suffix}")
+                return None
+            
+            # Run chdman conversion
+            logger.debug(f"Running command: {' '.join(cmd)}")
+            
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=1800  # 30 minute timeout for conversion
+            )
+            
+            if result.returncode == 0:
+                logger.info(f"Successfully converted {source_file.name} to CHD format")
+                
+                # Update progress to show conversion completed
+                if progress_callback and rom:
+                    chd_size = chd_file.stat().st_size if chd_file.exists() else 0
+                    convert_complete_progress = DownloadProgress(rom, chd_size, chd_size, operation="converted")
+                    progress_callback(convert_complete_progress)
+                
+                # Remove original file after successful conversion
+                source_file.unlink(missing_ok=True)
+                
+                # Also remove associated CUE file if we converted a BIN file
+                if source_file.suffix.lower() == '.bin':
+                    cue_file = source_file.with_suffix('.cue')
+                    if cue_file.exists():
+                        cue_file.unlink(missing_ok=True)
+                        logger.debug(f"Removed associated CUE file: {cue_file}")
+                
+                return chd_file
+                
+            else:
+                logger.error(f"CHD conversion failed for {source_file.name}")
+                logger.error(f"chdman stdout: {result.stdout}")
+                logger.error(f"chdman stderr: {result.stderr}")
+                
+                # If createcd failed for ISO/BIN, try createdvd
+                if source_file.suffix.lower() in ['.iso', '.bin'] and 'createcd' in cmd:
+                    logger.info("Retrying with createdvd command...")
+                    cmd = [str(chdman_path), "createdvd", "-i", str(source_file), "-o", str(chd_file)]
+                    
+                    result = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=1800
+                    )
+                    
+                    if result.returncode == 0:
+                        logger.info(f"Successfully converted {source_file.name} to CHD format using createdvd")
+                        
+                        # Update progress to show conversion completed
+                        if progress_callback and rom:
+                            chd_size = chd_file.stat().st_size if chd_file.exists() else 0
+                            convert_complete_progress = DownloadProgress(rom, chd_size, chd_size, operation="converted")
+                            progress_callback(convert_complete_progress)
+                        
+                        source_file.unlink(missing_ok=True)
+                        return chd_file
+                    else:
+                        logger.error(f"CHD conversion with createdvd also failed for {source_file.name}")
+                        logger.error(f"chdman stdout: {result.stdout}")
+                        logger.error(f"chdman stderr: {result.stderr}")
+                
+                # Clean up failed CHD file
+                if chd_file.exists():
+                    chd_file.unlink(missing_ok=True)
+                
+                return None
+                
+        except subprocess.TimeoutExpired:
+            logger.error(f"CHD conversion timed out for {source_file.name}")
+            if chd_file.exists():
+                chd_file.unlink(missing_ok=True)
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error during CHD conversion for {source_file.name}: {e}")
+            if chd_file.exists():
+                chd_file.unlink(missing_ok=True)
+            return None
     
     def cancel_download(self) -> None:
         """Cancel the current download session."""

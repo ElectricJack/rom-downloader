@@ -205,3 +205,19 @@ class ConfigManager:
             return False
         
         return platform.get("extract_archives", False)
+    
+    def supports_chd(self, platform_name: str) -> bool:
+        """Check if a platform supports CHD format.
+        
+        Args:
+            platform_name: Name of the platform.
+            
+        Returns:
+            True if platform supports CHD, False otherwise.
+        """
+        platform = self.get_platform(platform_name)
+        if not platform:
+            return False
+        
+        file_extensions = platform.get("file_extensions", [])
+        return ".chd" in file_extensions

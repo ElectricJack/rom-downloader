@@ -395,7 +395,10 @@ class DownloadManager:
             bin_files = [src for src, dst in files_to_move if src.suffix.lower() == '.bin']
             
             if cue_files:
-                logger.info(f"CUE files detected ({len(cue_files)} CUE, {len(bin_files)} BIN) - processing ONLY CUE files, skipping all BIN files")
+                logger.info(f"CUE files detected ({len(cue_files)} CUE, {len(bin_files)} BIN) - processing ONLY CUE files")
+                
+                # Track which BIN files to clean up after successful CHD conversion
+                bin_files_to_cleanup = []
                 
                 for src_file, dst_file in files_to_move:
                     # Skip if destination already exists
@@ -407,21 +410,46 @@ class DownloadManager:
                     if src_file.suffix.lower() == '.cue':
                         # Process CUE file for CHD conversion
                         logger.info(f"Processing CUE file for CHD conversion: {src_file.name}")
+                        
+                        # Collect associated BIN files for cleanup AFTER conversion
+                        for bin_src, bin_dst in files_to_move:
+                            if bin_src.suffix.lower() == '.bin':
+                                bin_files_to_cleanup.append(bin_src)
+                        
                         chd_file = self._convert_to_chd(src_file, platform_name, progress_callback, rom)
                         if chd_file:
+                            # CHD conversion successful - clean up source files now
+                            logger.info(f"CHD conversion successful, cleaning up CUE file and {len(bin_files_to_cleanup)} BIN files")
+                            
+                            # Clean up the CUE file
+                            src_file.unlink(missing_ok=True)
+                            logger.info(f"Cleaned up CUE file: {src_file.name}")
+                            
+                            # Clean up BIN files
+                            for bin_file in bin_files_to_cleanup:
+                                if bin_file.exists():
+                                    bin_file.unlink(missing_ok=True)
+                                    logger.info(f"Cleaned up BIN file: {bin_file.name}")
+                            
                             # Update destination to CHD file
                             chd_dst_file = dst_file.parent / chd_file.name
                             converted_files.append((chd_file, chd_dst_file))
                             logger.info(f"Converted CUE to CHD: {chd_file.name}")
                         else:
-                            # No conversion, use original CUE file
+                            # No conversion, use original CUE file and include BIN files
                             converted_files.append((src_file, dst_file))
                             logger.info(f"Moving CUE file (no conversion): {src_file} to {dst_file}")
+                            
+                            # Include BIN files since CHD conversion failed
+                            for bin_src, bin_dst in files_to_move:
+                                if bin_src.suffix.lower() == '.bin':
+                                    converted_files.append((bin_src, bin_dst))
+                                    logger.info(f"Including BIN file (CHD conversion failed): {bin_src} to {bin_dst}")
                     
                     elif src_file.suffix.lower() == '.bin':
-                        # NEVER process BIN files when CUE files exist - just clean them up
-                        logger.info(f"Skipping BIN file (CUE file will reference it): {src_file.name}")
-                        src_file.unlink(missing_ok=True)
+                        # Skip BIN files during processing - they'll be handled by CUE conversion or cleanup
+                        logger.info(f"Skipping BIN file (will be processed with CUE): {src_file.name}")
+                        continue
                     
                     else:
                         # Process other file types normally
@@ -788,16 +816,8 @@ class DownloadManager:
                     convert_complete_progress = DownloadProgress(rom, chd_size, chd_size, operation="converted")
                     progress_callback(convert_complete_progress)
                 
-                # Remove original file after successful conversion
-                logger.info(f"CHD conversion: removing original file {source_file}")
-                source_file.unlink(missing_ok=True)
-                
-                # Also remove associated CUE file if we converted a BIN file
-                if source_file.suffix.lower() == '.bin':
-                    cue_file = source_file.with_suffix('.cue')
-                    if cue_file.exists():
-                        cue_file.unlink(missing_ok=True)
-                        logger.info(f"CHD conversion: removed associated CUE file: {cue_file}")
+                # Note: Source file cleanup is now handled by the caller
+                logger.info(f"CHD conversion: source file {source_file} will be cleaned up by caller")
                 
                 return chd_file
                 
@@ -838,7 +858,8 @@ class DownloadManager:
                             convert_complete_progress = DownloadProgress(rom, chd_size, chd_size, operation="converted")
                             progress_callback(convert_complete_progress)
                         
-                        source_file.unlink(missing_ok=True)
+                        # Note: Source file cleanup is now handled by the caller
+                        logger.info(f"CHD conversion (DVD): source file {source_file} will be cleaned up by caller")
                         return chd_file
                     else:
                         logger.error(f"CHD conversion with createdvd also failed for {source_file.name}")

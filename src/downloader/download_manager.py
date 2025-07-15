@@ -397,17 +397,20 @@ class DownloadManager:
             if cue_files and bin_files:
                 logger.info(f"Multi-track disc detected: {len(cue_files)} CUE files, {len(bin_files)} BIN files")
                 
-                # Process CUE files for CHD conversion, skip associated BIN files
-                converted_bin_files = set()
+                # Track which files should be skipped
+                processed_files = set()
                 
+                # PHASE 1: Process all CUE files first
+                logger.info("Phase 1: Processing CUE files for CHD conversion")
                 for src_file, dst_file in files_to_move:
-                    # Skip if destination already exists
-                    if dst_file.exists():
-                        logger.info(f"File already exists, skipping: {dst_file}")
-                        src_file.unlink(missing_ok=True)
-                        continue
-                    
                     if src_file.suffix.lower() == '.cue':
+                        # Skip if destination already exists
+                        if dst_file.exists():
+                            logger.info(f"File already exists, skipping: {dst_file}")
+                            src_file.unlink(missing_ok=True)
+                            processed_files.add(src_file)
+                            continue
+                        
                         # Try CHD conversion for CUE file
                         logger.info(f"Processing CUE file for CHD conversion: {src_file.name}")
                         chd_file = self._convert_to_chd(src_file, platform_name, progress_callback, rom)
@@ -417,46 +420,45 @@ class DownloadManager:
                             converted_files.append((chd_file, chd_dst_file))
                             logger.info(f"Converted CUE to CHD: {chd_file.name}")
                             
-                            # Mark associated BIN files as converted (they were consumed by CHD conversion)
-                            cue_stem = src_file.stem
+                            # Mark ALL BIN files as processed (they were consumed by CHD conversion)
                             for bin_src, bin_dst in files_to_move:
-                                if (bin_src.suffix.lower() == '.bin' and 
-                                    bin_src.stem.startswith(cue_stem.split('(')[0].strip())):
-                                    converted_bin_files.add(bin_src)
+                                if bin_src.suffix.lower() == '.bin':
+                                    processed_files.add(bin_src)
                                     logger.info(f"BIN file consumed by CHD conversion: {bin_src.name}")
+                                    # Clean up the BIN file since it was processed by CHD conversion
+                                    bin_src.unlink(missing_ok=True)
                         else:
                             # No conversion, use original CUE file
                             converted_files.append((src_file, dst_file))
                             logger.info(f"Moving CUE file (no conversion): {src_file} to {dst_file}")
+                        
+                        processed_files.add(src_file)
+                
+                # PHASE 2: Process remaining files (should be no BIN files if CUE conversion succeeded)
+                logger.info("Phase 2: Processing remaining files")
+                for src_file, dst_file in files_to_move:
+                    if src_file in processed_files:
+                        logger.info(f"Skipping already processed file: {src_file.name}")
+                        continue
                     
-                    elif src_file.suffix.lower() == '.bin':
-                        # Skip BIN files that were already converted as part of CUE
-                        if src_file in converted_bin_files:
-                            logger.info(f"Skipping BIN file (already converted via CUE): {src_file.name}")
-                            # Clean up the BIN file since it was processed by CHD conversion
-                            src_file.unlink(missing_ok=True)
-                            continue
-                        else:
-                            # Process standalone BIN file (no associated CUE found)
-                            chd_file = self._convert_to_chd(src_file, platform_name, progress_callback, rom)
-                            if chd_file:
-                                chd_dst_file = dst_file.parent / chd_file.name
-                                converted_files.append((chd_file, chd_dst_file))
-                                logger.info(f"Converted standalone BIN to CHD: {chd_file.name}")
-                            else:
-                                converted_files.append((src_file, dst_file))
-                                logger.info(f"Moving standalone BIN file: {src_file} to {dst_file}")
+                    # Skip if destination already exists
+                    if dst_file.exists():
+                        logger.info(f"File already exists, skipping: {dst_file}")
+                        src_file.unlink(missing_ok=True)
+                        continue
                     
+                    # Process remaining files (standalone BIN files or other file types)
+                    if src_file.suffix.lower() == '.bin':
+                        logger.warning(f"Processing standalone BIN file (no CUE found): {src_file.name}")
+                    
+                    chd_file = self._convert_to_chd(src_file, platform_name, progress_callback, rom)
+                    if chd_file:
+                        chd_dst_file = dst_file.parent / chd_file.name
+                        converted_files.append((chd_file, chd_dst_file))
+                        logger.info(f"Converted to CHD: {chd_file.name}")
                     else:
-                        # Process other file types normally
-                        chd_file = self._convert_to_chd(src_file, platform_name, progress_callback, rom)
-                        if chd_file:
-                            chd_dst_file = dst_file.parent / chd_file.name
-                            converted_files.append((chd_file, chd_dst_file))
-                            logger.info(f"Converted to CHD: {chd_file.name}")
-                        else:
-                            converted_files.append((src_file, dst_file))
-                            logger.info(f"Moving {src_file} to {dst_file}")
+                        converted_files.append((src_file, dst_file))
+                        logger.info(f"Moving {src_file} to {dst_file}")
             
             else:
                 # Single file or no CUE/BIN combination - process normally

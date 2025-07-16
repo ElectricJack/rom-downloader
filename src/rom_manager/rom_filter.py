@@ -78,6 +78,36 @@ class RomFilter:
         # Convert to lowercase
         normalized = name.lower()
         
+        # Normalize region codes before removing special characters
+        region_mappings = {
+            # Standard region codes to full names
+            r'\(u\)': '(usa)',
+            r'\(us\)': '(usa)', 
+            r'\(usa\)': '(usa)',
+            r'\(e\)': '(europe)',
+            r'\(eur\)': '(europe)',
+            r'\(europe\)': '(europe)',
+            r'\(j\)': '(japan)',
+            r'\(jp\)': '(japan)',
+            r'\(japan\)': '(japan)',
+            r'\(ju\)': '(japan usa)',
+            r'\(ue\)': '(usa europe)',
+            r'\(japan,?\s*usa\)': '(japan usa)',
+            r'\(usa,?\s*europe\)': '(usa europe)',
+            # Remove quality indicators
+            r'\[!\]': '',
+            r'\[a\d*\]': '',  # Alternate versions
+            r'\[b\d*\]': '',  # Bad dumps
+            r'\[f\d*\]': '',  # Fixed versions
+            r'\[h\d*\]': '',  # Hacked versions
+            r'\[o\d*\]': '',  # Overdumps
+            r'\[t\d*\]': '',  # Trained versions
+            r'\[tr\]': '',    # Translated
+        }
+        
+        for pattern, replacement in region_mappings.items():
+            normalized = re.sub(pattern, replacement, normalized)
+        
         # Remove common variations
         normalized = re.sub(r'\s*[-_]\s*', ' ', normalized)  # Normalize separators
         normalized = re.sub(r'\s+', ' ', normalized)  # Normalize whitespace
@@ -232,7 +262,9 @@ class RomFilter:
             # Process entries using filename-based filtering (no additional network calls)
             process_start = time.time()
             file_count = 0
-            rom_extensions = {'.rvz', '.zip', '.7z', '.iso', '.gcm', '.bin', '.cue', '.chd'}
+            rom_extensions = {'.rvz', '.zip', '.7z', '.iso', '.gcm', '.bin', '.cue', '.chd', 
+                             '.n64', '.z64', '.v64', '.nes', '.sfc', '.smc', '.gba', '.gbc', '.gb', 
+                             '.nds', '.vb', '.pce', '.a26', '.a52', '.a78', '.cdi', '.gdi', '.wux', '.wud'}
             
             for i, entry in enumerate(entries):
                 if i % 100 == 0 and i > 0:  # Log progress every 100 entries

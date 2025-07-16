@@ -215,6 +215,46 @@
       "file_extensions": [".n64", ".z64", ".v64", ".zip", ".7z"],
       "file_pattern": ".*\\.(n64|z64|v64|zip|7z)$",
       "extract_archives": true
+    },
+    "Atari2600": {
+      "name": "Atari 2600",
+      "url": "https://myrient.erista.me/files/No-Intro/Atari%20-%202600/",
+      "target_folder": "atari2600",
+      "file_extensions": [".a26", ".bin", ".zip", ".7z"],
+      "file_pattern": ".*\\.(a26|bin|zip|7z)$",
+      "extract_archives": true
+    },
+    "Atari5200": {
+      "name": "Atari 5200",
+      "url": "https://myrient.erista.me/files/No-Intro/Atari%20-%205200/",
+      "target_folder": "atari5200",
+      "file_extensions": [".a52", ".bin", ".zip", ".7z"],
+      "file_pattern": ".*\\.(a52|bin|zip|7z)$",
+      "extract_archives": true
+    },
+    "Atari7800": {
+      "name": "Atari 7800",
+      "url": "https://myrient.erista.me/files/No-Intro/Atari%20-%207800/",
+      "target_folder": "atari7800",
+      "file_extensions": [".a78", ".bin", ".zip", ".7z"],
+      "file_pattern": ".*\\.(a78|bin|zip|7z)$",
+      "extract_archives": true
+    },
+    "PCEngineHuCard": {
+      "name": "NEC PC Engine / TurboGrafx-16",
+      "url": "https://myrient.erista.me/files/No-Intro/NEC%20-%20PC%20Engine%20-%20TurboGrafx-16/",
+      "target_folder": "pcengine",
+      "file_extensions": [".pce", ".zip", ".7z"],
+      "file_pattern": ".*\\.(pce|zip|7z)$",
+      "extract_archives": true
+    },
+    "BandaiPippin": {
+      "name": "Bandai Pippin",
+      "url": "https://myrient.erista.me/files/Redump/Bandai%20-%20Pippin/",
+      "target_folder": "pippin",
+      "file_extensions": [".bin", ".cue", ".chd", ".zip", ".7z"],
+      "file_pattern": ".*\\.(bin|cue|chd|zip|7z)$",
+      "extract_archives": true
     }
   }
 }

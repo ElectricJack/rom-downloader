@@ -151,6 +151,70 @@
       "file_extensions": [".bin", ".cue", ".zip", ".7z"],
       "file_pattern": ".*\\.(bin|cue|zip|7z)$",
       "extract_archives": true
+    },
+    "GBA": {
+      "name": "Nintendo Game Boy Advance",
+      "url": "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Game%20Boy%20Advance/",
+      "target_folder": "gba",
+      "file_extensions": [".gba", ".zip", ".7z"],
+      "file_pattern": ".*\\.(gba|zip|7z)$",
+      "extract_archives": true
+    },
+    "GBC": {
+      "name": "Nintendo Game Boy Color",
+      "url": "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Game%20Boy%20Color/",
+      "target_folder": "gbc",
+      "file_extensions": [".gbc", ".zip", ".7z"],
+      "file_pattern": ".*\\.(gbc|zip|7z)$",
+      "extract_archives": true
+    },
+    "GB": {
+      "name": "Nintendo Game Boy",
+      "url": "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Game%20Boy/",
+      "target_folder": "gb",
+      "file_extensions": [".gb", ".zip", ".7z"],
+      "file_pattern": ".*\\.(gb|zip|7z)$",
+      "extract_archives": true
+    },
+    "NES": {
+      "name": "Nintendo Entertainment System",
+      "url": "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Nintendo%20Entertainment%20System%20(Headered)/",
+      "target_folder": "nes",
+      "file_extensions": [".nes", ".zip", ".7z"],
+      "file_pattern": ".*\\.(nes|zip|7z)$",
+      "extract_archives": true
+    },
+    "SNES": {
+      "name": "Super Nintendo Entertainment System",
+      "url": "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Super%20Nintendo%20Entertainment%20System/",
+      "target_folder": "snes",
+      "file_extensions": [".sfc", ".smc", ".zip", ".7z"],
+      "file_pattern": ".*\\.(sfc|smc|zip|7z)$",
+      "extract_archives": true
+    },
+    "VirtualBoy": {
+      "name": "Nintendo Virtual Boy",
+      "url": "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Virtual%20Boy/",
+      "target_folder": "virtualboy",
+      "file_extensions": [".vb", ".zip", ".7z"],
+      "file_pattern": ".*\\.(vb|zip|7z)$",
+      "extract_archives": true
+    },
+    "NDS": {
+      "name": "Nintendo DS",
+      "url": "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Nintendo%20DS%20(Decrypted)/",
+      "target_folder": "nds",
+      "file_extensions": [".nds", ".zip", ".7z"],
+      "file_pattern": ".*\\.(nds|zip|7z)$",
+      "extract_archives": true
+    },
+    "N64": {
+      "name": "Nintendo 64",
+      "url": "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Nintendo%2064%20(BigEndian)/",
+      "target_folder": "n64",
+      "file_extensions": [".n64", ".z64", ".v64", ".zip", ".7z"],
+      "file_pattern": ".*\\.(n64|z64|v64|zip|7z)$",
+      "extract_archives": true
     }
   }
 }

@@ -574,9 +574,10 @@ class GameLibraryGUI:
             # Process into library
             library = self.library_processor.process_rom_collection(roms, platform)
             
-            # Merge with existing library
-            for game in library.games.values():
-                self.state_manager.add_game(game)
+            # Merge with existing library using transaction to batch saves
+            with self.state_manager:
+                for game in library.games.values():
+                    self.state_manager.add_game(game)
             
             # Update UI
             self.root.after(0, lambda: self._scan_complete(len(library.games)))

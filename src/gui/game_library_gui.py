@@ -107,8 +107,8 @@ class GameLibraryGUI:
         # Buttons
         ttk.Button(top_frame, text="Scan ROMs", command=self.scan_roms).pack(side=tk.LEFT, padx=(0, 5))
         ttk.Button(top_frame, text="Check Installed", command=self.check_installed_roms).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(top_frame, text="Download Selected", command=self.download_selected).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(top_frame, text="Clear Selections", command=self.clear_selections).pack(side=tk.LEFT)
+        ttk.Button(top_frame, text="Download Queue", command=self.download_selected).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(top_frame, text="Clear Queue", command=self.clear_selections).pack(side=tk.LEFT)
     
     def setup_tag_filters(self, parent):
         """Set up dynamic tag filter buttons"""
@@ -390,18 +390,18 @@ class GameLibraryGUI:
         content_frame.grid_columnconfigure(0, weight=1)
         
         # Create treeview with installed column
-        columns = ('selected', 'installed', 'size', 'tags', 'item_type', 'game_key', 'variant_key')
+        columns = ('queued', 'installed', 'size', 'tags', 'item_type', 'game_key', 'variant_key')
         self.game_tree = ttk.Treeview(content_frame, columns=columns, show='tree headings')
         
         # Configure columns
         self.game_tree.heading('#0', text='Name')
-        self.game_tree.heading('selected', text='Selected')
+        self.game_tree.heading('queued', text='Queued')
         self.game_tree.heading('installed', text='Installed')
         self.game_tree.heading('size', text='Size')
         self.game_tree.heading('tags', text='Tags')
         
         self.game_tree.column('#0', width=400)
-        self.game_tree.column('selected', width=80, anchor='center')
+        self.game_tree.column('queued', width=80, anchor='center')
         self.game_tree.column('installed', width=80, anchor='center')
         self.game_tree.column('size', width=100, anchor='center')
         self.game_tree.column('tags', width=300)
@@ -411,8 +411,8 @@ class GameLibraryGUI:
         
         # Configure tree tag styles
         self.game_tree.tag_configure('installed', background='lightgreen')
-        self.game_tree.tag_configure('selected', background='lightblue')
-        self.game_tree.tag_configure('selected_installed', background='darkgreen', foreground='white')
+        self.game_tree.tag_configure('queued', background='lightblue')
+        self.game_tree.tag_configure('queued_installed', background='darkgreen', foreground='white')
         
         # Scrollbars
         tree_scroll_y = ttk.Scrollbar(content_frame, orient=tk.VERTICAL, command=self.game_tree.yview)
@@ -424,10 +424,259 @@ class GameLibraryGUI:
         tree_scroll_y.grid(row=0, column=1, sticky=(tk.N, tk.S))
         tree_scroll_x.grid(row=1, column=0, sticky=(tk.W, tk.E))
         
-        # Bind events
+        # Bind events - remove double-click selection, add right-click menu
         self.game_tree.bind('<Button-1>', self.on_tree_click)
-        self.game_tree.bind('<Double-Button-1>', self.on_tree_double_click)
+        self.game_tree.bind('<Button-3>', self.on_tree_right_click)  # Right-click context menu
         self.game_tree.bind('<<TreeviewSelect>>', self.on_tree_select)
+        
+        # Create context menu
+        self.create_context_menu()
+    
+    def create_context_menu(self):
+        """Create right-click context menu"""
+        self.context_menu = tk.Menu(self.root, tearoff=0)
+        self.context_menu.add_command(label="Add to Queue", command=self.add_to_queue)
+        self.context_menu.add_command(label="Remove from Queue", command=self.remove_from_queue)
+        self.context_menu.add_separator()
+        self.context_menu.add_command(label="Add All Variants to Queue", command=self.add_all_variants_to_queue)
+        self.context_menu.add_command(label="Remove All Variants from Queue", command=self.remove_all_variants_from_queue)
+    
+    def add_to_queue(self):
+        """Add selected items to download queue via context menu"""
+        selections = self.game_tree.selection()
+        if not selections:
+            return
+        
+        platform = self.current_platform.get()
+        if not platform:
+            return
+        
+        # Track which games were modified for batch updates
+        modified_games = set()
+        
+        # Process all selected items
+        for item in selections:
+            try:
+                item_type = self.game_tree.set(item, 'item_type')
+                game_key = self.game_tree.set(item, 'game_key')
+                variant_key = self.game_tree.set(item, 'variant_key')
+            except:
+                continue
+            
+            if item_type == 'game':
+                if self.add_game_to_queue_batch(game_key, platform):
+                    modified_games.add(game_key)
+            elif item_type == 'variant':
+                if self.add_variant_to_queue_batch(game_key, platform, variant_key):
+                    modified_games.add(game_key)
+        
+        # Save once after all operations
+        if self.state_manager.selections_dirty:
+            self.state_manager.save_selections()
+        
+        # Update all modified games
+        for game_key in modified_games:
+            self.update_game_tree_item(game_key, platform)
+    
+    def add_game_to_queue_batch(self, game_key: str, platform: str) -> bool:
+        """Add a game to download queue (batch operation, returns True if modified)"""
+        # Find game
+        game = None
+        for g in self.current_games:
+            if g.key == game_key:
+                game = g
+                break
+        
+        if not game:
+            return False
+        
+        # Check if already queued
+        current_selection = self.state_manager.get_selection(game_key, platform)
+        if current_selection:
+            return False  # Already queued
+        
+        # Add to queue - pick best variant
+        variants = game.get_variants_for_platform(platform)
+        if variants:
+            best_variant = game.get_best_variant(platform, self.config_manager.get_preferred_regions())
+            if best_variant:
+                variant_key = best_variant.create_variant_key()
+                self.state_manager.select_rom_variant(game_key, platform, variant_key)
+                return True
+        
+        return False
+    
+    def add_variant_to_queue_batch(self, game_key: str, platform: str, variant_key: str) -> bool:
+        """Add a specific variant to download queue (batch operation, returns True if modified)"""
+        # Check if already queued with this variant
+        current_selection = self.state_manager.get_selection(game_key, platform)
+        if current_selection and current_selection.selected_rom_variant == variant_key:
+            return False  # Already queued with this variant
+        
+        self.state_manager.select_rom_variant(game_key, platform, variant_key)
+        return True
+    
+    def remove_from_queue(self):
+        """Remove selected items from download queue via context menu"""
+        selections = self.game_tree.selection()
+        if not selections:
+            return
+        
+        platform = self.current_platform.get()
+        if not platform:
+            return
+        
+        # Process all selected items
+        for item in selections:
+            try:
+                item_type = self.game_tree.set(item, 'item_type')
+                game_key = self.game_tree.set(item, 'game_key')
+                variant_key = self.game_tree.set(item, 'variant_key')
+            except:
+                continue
+            
+            if item_type in ['game', 'variant']:
+                # Remove from queue regardless of whether it's game or variant level
+                selection_key = f"{platform}:{game_key}"
+                if selection_key in self.state_manager.selections:
+                    del self.state_manager.selections[selection_key]
+                    self.state_manager.selections_dirty = True
+                    # Don't save after each item - save once at the end
+        
+        # Save selections once after processing all items
+        if self.state_manager.selections_dirty:
+            self.state_manager.save_selections()
+            
+            # Update all affected items
+            processed_games = set()
+            for item in selections:
+                try:
+                    game_key = self.game_tree.set(item, 'game_key')
+                    if game_key and game_key not in processed_games:
+                        self.update_game_tree_item(game_key, platform)
+                        processed_games.add(game_key)
+                except:
+                    continue
+    
+    def add_all_variants_to_queue(self):
+        """Add all variants of selected games to queue"""
+        selections = self.game_tree.selection()
+        if not selections:
+            return
+        
+        platform = self.current_platform.get()
+        if not platform:
+            return
+        
+        # Process all selected items
+        processed_games = set()
+        for item in selections:
+            try:
+                game_key = self.game_tree.set(item, 'game_key')
+                if game_key and game_key not in processed_games:
+                    self.add_game_to_queue(game_key, platform)
+                    processed_games.add(game_key)
+            except:
+                continue
+    
+    def remove_all_variants_from_queue(self):
+        """Remove all variants of selected games from queue"""
+        # This is the same as regular remove for our current implementation
+        self.remove_from_queue()
+    
+    def add_game_to_queue(self, game_key: str, platform: str):
+        """Add a game to download queue (selects best variant)"""
+        if self.add_game_to_queue_batch(game_key, platform):
+            self.state_manager.save_selections()
+            self.update_game_tree_item(game_key, platform)
+    
+    def add_variant_to_queue(self, game_key: str, platform: str, variant_key: str):
+        """Add a specific variant to download queue"""
+        if self.add_variant_to_queue_batch(game_key, platform, variant_key):
+            self.state_manager.save_selections()
+            self.update_game_tree_item(game_key, platform)
+    
+    def update_game_tree_item(self, game_key: str, platform: str):
+        """Update a specific game's tree items without full refresh"""
+        # Find the game in current games
+        game = None
+        for g in self.current_games:
+            if g.key == game_key:
+                game = g
+                break
+        
+        if not game:
+            return
+        
+        # Find the game item in the tree
+        game_item = None
+        for item_id in self.game_tree.get_children():
+            if self.game_tree.set(item_id, 'game_key') == game_key:
+                game_item = item_id
+                break
+        
+        if not game_item:
+            return
+        
+        # Get current queue status
+        selection = self.state_manager.get_selection(game_key, platform)
+        queued_text = "✓" if selection else ""
+        
+        # Cache variants lookup and installed check
+        variants = game.get_variants_for_platform(platform)
+        installed_variants = []
+        variant_installed_map = {}  # Cache installed status for each variant
+        
+        for rom in variants:
+            is_installed = self.is_rom_installed(rom, platform)
+            variant_key = rom.create_variant_key()
+            variant_installed_map[variant_key] = is_installed
+            if is_installed:
+                installed_variants.append(rom)
+        
+        installed_text = "✓" if installed_variants else ""
+        
+        # Update game item visual styling
+        visual_tags = ['game']
+        if selection:
+            visual_tags.append('queued')
+        if installed_variants:
+            visual_tags.append('installed')
+        if selection and installed_variants:
+            visual_tags.append('queued_installed')
+        
+        # Update game item values and tags
+        current_values = list(self.game_tree.item(game_item, 'values'))
+        current_values[0] = queued_text  # Queued column
+        current_values[1] = installed_text  # Installed column
+        self.game_tree.item(game_item, values=tuple(current_values), tags=tuple(visual_tags))
+        
+        # Update all child ROM variant items
+        for child_item in self.game_tree.get_children(game_item):
+            child_variant_key = self.game_tree.set(child_item, 'variant_key')
+            
+            # Check if this specific variant is queued
+            variant_queued = ""
+            if selection and selection.selected_rom_variant == child_variant_key:
+                variant_queued = "✓"
+            
+            # Use cached installed status
+            variant_installed = "✓" if variant_installed_map.get(child_variant_key, False) else ""
+            
+            # Update variant visual styling
+            variant_visual_tags = ['variant']
+            if variant_queued:
+                variant_visual_tags.append('queued')
+            if variant_installed:
+                variant_visual_tags.append('installed')
+            if variant_queued and variant_installed:
+                variant_visual_tags.append('queued_installed')
+            
+            # Update variant item values and tags
+            child_values = list(self.game_tree.item(child_item, 'values'))
+            child_values[0] = variant_queued  # Queued column
+            child_values[1] = variant_installed  # Installed column
+            self.game_tree.item(child_item, values=tuple(child_values), tags=tuple(variant_visual_tags))
     
     def setup_bottom_section(self, parent):
         """Set up the bottom section with progress and status"""
@@ -450,8 +699,8 @@ class GameLibraryGUI:
         # File menu
         file_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="File", menu=file_menu)
-        file_menu.add_command(label="Export Selections...", command=self.export_selections)
-        file_menu.add_command(label="Import Selections...", command=self.import_selections)
+        file_menu.add_command(label="Export Queue...", command=self.export_selections)
+        file_menu.add_command(label="Import Queue...", command=self.import_selections)
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self.root.quit)
         
@@ -767,9 +1016,9 @@ class GameLibraryGUI:
         if not variants:
             return
         
-        # Check if any variant is selected
+        # Check if any variant is queued
         selection = self.state_manager.get_selection(game.key, platform)
-        selected_text = "✓" if selection else ""
+        queued_text = "✓" if selection else ""
         
         # Check if any variant is installed
         installed_variants = []
@@ -791,27 +1040,27 @@ class GameLibraryGUI:
         # Determine visual styling
         visual_tags = ['game']
         if selection:
-            visual_tags.append('selected')
+            visual_tags.append('queued')
         if installed_variants:
             visual_tags.append('installed')
         if selection and installed_variants:
-            visual_tags.append('selected_installed')
+            visual_tags.append('queued_installed')
         
         # Insert game item
         game_item = self.game_tree.insert(
             '',
             'end',
             text=game.display_name,
-            values=(selected_text, installed_text, f"{len(variants)} variants", tags_text, 'game', game.key, ''),
+            values=(queued_text, installed_text, f"{len(variants)} variants", tags_text, 'game', game.key, ''),
             tags=tuple(visual_tags)
         )
         
         # Add ROM variants as children
         for rom in variants:
-            # Check if this specific variant is selected
-            variant_selected = ""
+            # Check if this specific variant is queued
+            variant_queued = ""
             if selection and selection.selected_rom_variant == rom.create_variant_key():
-                variant_selected = "✓"
+                variant_queued = "✓"
             
             # Check if this specific variant is installed
             variant_installed = "✓" if self.is_rom_installed(rom, platform) else ""
@@ -821,18 +1070,18 @@ class GameLibraryGUI:
             
             # Determine visual styling for variant
             variant_visual_tags = ['variant']
-            if variant_selected:
-                variant_visual_tags.append('selected')
+            if variant_queued:
+                variant_visual_tags.append('queued')
             if variant_installed:
                 variant_visual_tags.append('installed')
-            if variant_selected and variant_installed:
-                variant_visual_tags.append('selected_installed')
+            if variant_queued and variant_installed:
+                variant_visual_tags.append('queued_installed')
             
             self.game_tree.insert(
                 game_item,
                 'end',
                 text=rom.filename,
-                values=(variant_selected, variant_installed, rom.size, rom_tags, 'variant', game.key, rom.create_variant_key()),
+                values=(variant_queued, variant_installed, rom.size, rom_tags, 'variant', game.key, rom.create_variant_key()),
                 tags=tuple(variant_visual_tags)
             )
     
@@ -907,23 +1156,15 @@ class GameLibraryGUI:
         self.refresh_game_list()
     
     def on_tree_click(self, event):
-        """Handle tree click"""
+        """Handle tree click - only toggle queue on checkbox column click"""
         region = self.game_tree.identify_region(event.x, event.y)
         if region == "cell":
             column = self.game_tree.identify_column(event.x)
-            if column == '#1':  # Selected column
-                self.toggle_selection(event)
+            if column == '#1':  # Queued column
+                self.toggle_queue_status(event)
     
-    def on_tree_double_click(self, event):
-        """Handle tree double-click"""
-        self.toggle_selection(event)
-    
-    def on_tree_select(self, event):
-        """Handle tree selection (for expanding/collapsing)"""
-        pass  # We don't need special handling for selection changes
-    
-    def toggle_selection(self, event):
-        """Toggle selection for game or variant"""
+    def toggle_queue_status(self, event):
+        """Toggle queue status for game or variant"""
         item = self.game_tree.identify_row(event.y)
         if not item:
             return
@@ -940,12 +1181,12 @@ class GameLibraryGUI:
             return
         
         if item_type == 'game':
-            self.toggle_game_selection(game_key, platform)
+            self.toggle_game_queue(game_key, platform)
         elif item_type == 'variant':
-            self.toggle_variant_selection(game_key, platform, variant_key)
+            self.toggle_variant_queue(game_key, platform, variant_key)
     
-    def toggle_game_selection(self, game_key: str, platform: str):
-        """Toggle selection for a game (auto-select best variant)"""
+    def toggle_game_queue(self, game_key: str, platform: str):
+        """Toggle queue status for a game (auto-select best variant)"""
         # Find game
         game = None
         for g in self.current_games:
@@ -956,18 +1197,18 @@ class GameLibraryGUI:
         if not game:
             return
         
-        # Toggle selection
+        # Toggle queue status
         current_selection = self.state_manager.get_selection(game_key, platform)
         
         if current_selection:
-            # Remove selection
+            # Remove from queue
             selection_key = f"{platform}:{game_key}"
             if selection_key in self.state_manager.selections:
                 del self.state_manager.selections[selection_key]
                 self.state_manager.selections_dirty = True
                 self.state_manager.save_selections()
         else:
-            # Add selection - pick best variant
+            # Add to queue - pick best variant
             variants = game.get_variants_for_platform(platform)
             if variants:
                 best_variant = game.get_best_variant(platform, self.config_manager.get_preferred_regions())
@@ -978,105 +1219,33 @@ class GameLibraryGUI:
         # Update only the affected tree items instead of full refresh
         self.update_game_tree_item(game_key, platform)
     
-    def toggle_variant_selection(self, game_key: str, platform: str, variant_key: str):
-        """Toggle selection for a specific variant"""
+    def toggle_variant_queue(self, game_key: str, platform: str, variant_key: str):
+        """Toggle queue status for a specific variant"""
         current_selection = self.state_manager.get_selection(game_key, platform)
         
         if current_selection and current_selection.selected_rom_variant == variant_key:
-            # Deselect this variant
+            # Remove this variant from queue
             selection_key = f"{platform}:{game_key}"
             if selection_key in self.state_manager.selections:
                 del self.state_manager.selections[selection_key]
                 self.state_manager.selections_dirty = True
                 self.state_manager.save_selections()
         else:
-            # Select this variant
+            # Add this variant to queue
             self.state_manager.select_rom_variant(game_key, platform, variant_key)
         
         # Update only the affected tree items instead of full refresh
         self.update_game_tree_item(game_key, platform)
     
-    def update_game_tree_item(self, game_key: str, platform: str):
-        """Update a specific game's tree items without full refresh"""
-        # Find the game in current games
-        game = None
-        for g in self.current_games:
-            if g.key == game_key:
-                game = g
-                break
-        
-        if not game:
-            return
-        
-        # Find the game item in the tree
-        game_item = None
-        for item_id in self.game_tree.get_children():
-            if self.game_tree.set(item_id, 'game_key') == game_key:
-                game_item = item_id
-                break
-        
-        if not game_item:
-            return
-        
-        # Get current selection
-        selection = self.state_manager.get_selection(game_key, platform)
-        selected_text = "✓" if selection else ""
-        
-        # Cache variants lookup and installed check
-        variants = game.get_variants_for_platform(platform)
-        installed_variants = []
-        variant_installed_map = {}  # Cache installed status for each variant
-        
-        for rom in variants:
-            is_installed = self.is_rom_installed(rom, platform)
-            variant_key = rom.create_variant_key()
-            variant_installed_map[variant_key] = is_installed
-            if is_installed:
-                installed_variants.append(rom)
-        
-        installed_text = "✓" if installed_variants else ""
-        
-        # Update game item visual styling
-        visual_tags = ['game']
-        if selection:
-            visual_tags.append('selected')
-        if installed_variants:
-            visual_tags.append('installed')
-        if selection and installed_variants:
-            visual_tags.append('selected_installed')
-        
-        # Update game item values and tags
-        current_values = list(self.game_tree.item(game_item, 'values'))
-        current_values[0] = selected_text  # Selected column
-        current_values[1] = installed_text  # Installed column
-        self.game_tree.item(game_item, values=tuple(current_values), tags=tuple(visual_tags))
-        
-        # Update all child ROM variant items
-        for child_item in self.game_tree.get_children(game_item):
-            child_variant_key = self.game_tree.set(child_item, 'variant_key')
-            
-            # Check if this specific variant is selected
-            variant_selected = ""
-            if selection and selection.selected_rom_variant == child_variant_key:
-                variant_selected = "✓"
-            
-            # Use cached installed status
-            variant_installed = "✓" if variant_installed_map.get(child_variant_key, False) else ""
-            
-            # Update variant visual styling
-            variant_visual_tags = ['variant']
-            if variant_selected:
-                variant_visual_tags.append('selected')
-            if variant_installed:
-                variant_visual_tags.append('installed')
-            if variant_selected and variant_installed:
-                variant_visual_tags.append('selected_installed')
-            
-            # Update variant item values and tags
-            child_values = list(self.game_tree.item(child_item, 'values'))
-            child_values[0] = variant_selected  # Selected column
-            child_values[1] = variant_installed  # Installed column
-            self.game_tree.item(child_item, values=tuple(child_values), tags=tuple(variant_visual_tags))
+    def on_tree_right_click(self, event):
+        """Handle right-click context menu"""
+        item = self.game_tree.identify_row(event.y)
+        if item:
+            self.context_menu.post(event.x_root, event.y_root)
+    
+    def on_tree_select(self, event):
+        """Handle tree selection (for expanding/collapsing)"""
+        pass  # We don't need special handling for selection changes
     
     def scan_roms(self):
         """Scan for ROMs on the selected platform"""
@@ -1143,7 +1312,7 @@ class GameLibraryGUI:
         self.refresh_game_list()
     
     def download_selected(self):
-        """Download selected ROMs"""
+        """Download queued ROMs"""
         platform = self.current_platform.get()
         if not platform:
             messagebox.showwarning("Warning", "Please select a platform first")
@@ -1153,11 +1322,11 @@ class GameLibraryGUI:
             messagebox.showwarning("Warning", "Download already in progress")
             return
         
-        # Get selected ROMs
+        # Get queued ROMs
         selected_roms = self.state_manager.get_selected_roms(platform)
         
         if not selected_roms:
-            messagebox.showinfo("Info", "No ROMs selected for download")
+            messagebox.showinfo("Info", "No ROMs queued for download")
             return
         
         # Filter out already installed ROMs
@@ -1180,11 +1349,11 @@ class GameLibraryGUI:
             messagebox.showinfo("ROMs Already Installed", message)
         
         if not roms_to_download:
-            messagebox.showinfo("Nothing to Download", "All selected ROMs are already installed.")
+            messagebox.showinfo("Nothing to Download", "All queued ROMs are already installed.")
             return
         
         # Confirm download
-        if not messagebox.askyesno("Confirm Download", f"Download {len(roms_to_download)} ROMs?"):
+        if not messagebox.askyesno("Confirm Download", f"Download {len(roms_to_download)} ROMs from queue?"):
             return
         
         self.downloading = True
@@ -1246,18 +1415,18 @@ class GameLibraryGUI:
             self.check_installed_roms()
     
     def clear_selections(self):
-        """Clear all selections for current platform"""
+        """Clear all queued items for current platform"""
         platform = self.current_platform.get()
         if not platform:
             return
         
-        if messagebox.askyesno("Confirm", "Clear all selections for this platform?"):
+        if messagebox.askyesno("Confirm", "Clear download queue for this platform?"):
             self.state_manager.clear_platform_selections(platform)
             # Use targeted updates instead of full refresh
             self.refresh_selection_display(platform)
     
     def refresh_selection_display(self, platform: str):
-        """Refresh only the selection-related display elements (faster than full refresh)"""
+        """Refresh only the queue-related display elements (faster than full refresh)"""
         # Update all visible game items
         for item_id in self.game_tree.get_children():
             game_key = self.game_tree.set(item_id, 'game_key')
@@ -1270,14 +1439,14 @@ class GameLibraryGUI:
                 try:
                     game_key = self.game_tree.set(item_id, 'game_key')
                     if game_key:
-                        # Update selection display for detached item
+                        # Update queue display for detached item
                         current_values = list(self.game_tree.item(item_id, 'values'))
-                        current_values[0] = ""  # Clear selected column
+                        current_values[0] = ""  # Clear queued column
                         
                         # Update visual tags
                         current_tags = list(self.game_tree.item(item_id, 'tags'))
-                        # Remove selection-related tags
-                        current_tags = [tag for tag in current_tags if tag not in ['selected', 'selected_installed']]
+                        # Remove queue-related tags
+                        current_tags = [tag for tag in current_tags if tag not in ['queued', 'queued_installed']]
                         if 'installed' in current_tags:
                             current_tags = ['game', 'installed']
                         else:
@@ -1288,9 +1457,9 @@ class GameLibraryGUI:
                         # Update child variants too
                         for child_id in self.game_tree.get_children(item_id):
                             child_values = list(self.game_tree.item(child_id, 'values'))
-                            child_values[0] = ""  # Clear selected column
+                            child_values[0] = ""  # Clear queued column
                             child_tags = list(self.game_tree.item(child_id, 'tags'))
-                            child_tags = [tag for tag in child_tags if tag not in ['selected', 'selected_installed']]
+                            child_tags = [tag for tag in child_tags if tag not in ['queued', 'queued_installed']]
                             if 'installed' in child_tags:
                                 child_tags = ['variant', 'installed']
                             else:
@@ -1307,7 +1476,7 @@ class GameLibraryGUI:
             self._detached_items.clear()
     
     def export_selections(self):
-        """Export selections to file"""
+        """Export download queue to file"""
         platform = self.current_platform.get()
         if not platform:
             messagebox.showwarning("Warning", "Please select a platform first")
@@ -1321,12 +1490,12 @@ class GameLibraryGUI:
         if filename:
             try:
                 self.state_manager.export_selections(platform, Path(filename))
-                messagebox.showinfo("Success", "Selections exported successfully")
+                messagebox.showinfo("Success", "Download queue exported successfully")
             except Exception as e:
-                messagebox.showerror("Error", f"Failed to export selections: {e}")
+                messagebox.showerror("Error", f"Failed to export queue: {e}")
     
     def import_selections(self):
-        """Import selections from file"""
+        """Import download queue from file"""
         filename = filedialog.askopenfilename(
             filetypes=[("JSON files", "*.json")]
         )
@@ -1335,12 +1504,12 @@ class GameLibraryGUI:
             try:
                 success = self.state_manager.import_selections(Path(filename))
                 if success:
-                    messagebox.showinfo("Success", "Selections imported successfully")
+                    messagebox.showinfo("Success", "Download queue imported successfully")
                     self.refresh_game_list()
                 else:
-                    messagebox.showerror("Error", "Failed to import selections")
+                    messagebox.showerror("Error", "Failed to import queue")
             except Exception as e:
-                messagebox.showerror("Error", f"Failed to import selections: {e}")
+                messagebox.showerror("Error", f"Failed to import queue: {e}")
     
     def clear_cache(self):
         """Clear application cache"""
@@ -1374,8 +1543,14 @@ Features:
 - Game-centric organization with expandable variants
 - Installation status verification
 - Configurable tool pipelines
-- Persistent selections
+- Download queue management
 - Multi-platform support
+
+Usage:
+- Click on the checkbox in the "Queued" column to add/remove ROMs from download queue
+- Right-click on games for queue management options
+- Double-click expands/collapses game variants
+- Use filters to find specific games quickly
 """
         messagebox.showinfo("About", about_text)
     

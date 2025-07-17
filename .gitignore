@@ -81,3 +81,5 @@ state/app_state.json
 *.temp
 *.bak
 game_library.json
+state/selections.json
+state/app_settings.json

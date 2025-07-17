@@ -1,0 +1,227 @@
+"""
+Game library processor for converting ROM lists into organized game library.
+"""
+
+import re
+import logging
+from typing import List, Set, Tuple, Dict
+from pathlib import Path
+
+from scraper.web_scraper import RomInfo
+from models.game_library import ROM, Game, GameLibrary
+
+logger = logging.getLogger(__name__)
+
+
+class GameLibraryProcessor:
+    """Processes ROMs into organized game library"""
+    
+    def __init__(self):
+        self.tag_patterns = [
+            r'\(([^)]+)\)',  # Anything in parentheses
+            r'\[([^\]]+)\]'  # Anything in brackets (optional)
+        ]
+        
+        # Common file extensions to remove
+        self.rom_extensions = {
+            '.rvz', '.zip', '.7z', '.iso', '.bin', '.cue', '.chd', '.gcm', 
+            '.nes', '.sfc', '.smc', '.gba', '.gbc', '.gb', '.nds', '.n64', 
+            '.z64', '.v64', '.vb', '.pce', '.a26', '.a52', '.a78', '.cdi', 
+            '.gdi', '.wux', '.wud', '.rom'
+        }
+        
+        # Tags that should be prioritized (ordered by preference)
+        self.priority_tags = [
+            'USA', 'US', 'En', 'English', 'World', 'Europe', 'Japan', 'JP'
+        ]
+    
+    def process_rom_collection(self, roms: List[RomInfo], platform: str) -> GameLibrary:
+        """Convert ROM list into organized game library"""
+        library = GameLibrary()
+        
+        logger.info(f"Processing {len(roms)} ROMs for platform {platform}")
+        
+        for rom_info in roms:
+            # Convert RomInfo to ROM with tag extraction
+            rom = self._create_rom_from_info(rom_info, platform)
+            
+            # Create game key and find/create game
+            game_key = self.create_game_key(rom.filename)
+            
+            if game_key not in library.games:
+                display_name = self._create_display_name(rom.filename)
+                game = Game(
+                    key=game_key,
+                    display_name=display_name,
+                    platforms={platform}
+                )
+                library.add_game(game)
+            
+            # Add ROM variant to game
+            game = library.games[game_key]
+            game.add_variant(rom)
+            
+            # Update tag registry after adding variant
+            library.tag_registry[platform].update(rom.tags)
+        
+        logger.info(f"Processed into {len(library.games)} unique games with {sum(len(g.variants) for g in library.games.values())} variants")
+        
+        return library
+    
+    def _create_rom_from_info(self, rom_info: RomInfo, platform: str) -> ROM:
+        """Create ROM object from RomInfo with tag extraction"""
+        tags, normalized_name = self.extract_tags_and_normalize(rom_info.name)
+        
+        return ROM(
+            filename=rom_info.name,
+            url=rom_info.url,
+            size=rom_info.size,
+            file_type=rom_info.file_type,
+            tags=tags,
+            platform=platform
+        )
+    
+    def extract_tags_and_normalize(self, filename: str) -> Tuple[Set[str], str]:
+        """Extract all tags and return normalized name"""
+        tags = set()
+        normalized = filename
+        
+        # Remove file extension
+        for ext in self.rom_extensions:
+            if normalized.lower().endswith(ext):
+                normalized = normalized[:-len(ext)]
+                break
+        
+        # Extract tags from parentheses and brackets
+        for pattern in self.tag_patterns:
+            matches = re.findall(pattern, normalized)
+            for match in matches:
+                # Handle comma-delimited tags
+                tag_parts = [t.strip() for t in match.split(',') if t.strip()]
+                tags.update(tag_parts)
+            
+            # Remove all parenthetical/bracket content from name
+            normalized = re.sub(pattern, '', normalized)
+        
+        # Clean up normalized name
+        normalized = re.sub(r'\s+', ' ', normalized).strip()
+        
+        return tags, normalized
+    
+    def create_game_key(self, filename: str) -> str:
+        """Create consistent game key from filename"""
+        # Extract normalized name without tags
+        _, normalized_name = self.extract_tags_and_normalize(filename)
+        
+        # Further normalization for key generation
+        key = normalized_name.lower()
+        
+        # Remove common prefixes/suffixes
+        prefixes_to_remove = ['the ', 'a ', 'an ']
+        for prefix in prefixes_to_remove:
+            if key.startswith(prefix):
+                key = key[len(prefix):]
+                break
+        
+        # Remove punctuation and special characters
+        key = re.sub(r'[^\w\s]', '', key)
+        
+        # Replace spaces with underscores
+        key = re.sub(r'\s+', '_', key)
+        
+        # Remove leading/trailing underscores
+        key = key.strip('_')
+        
+        return key
+    
+    def _create_display_name(self, filename: str) -> str:
+        """Create clean display name from filename"""
+        _, normalized_name = self.extract_tags_and_normalize(filename)
+        
+        # Clean up common artifacts
+        display_name = normalized_name.strip()
+        
+        # Remove common prefixes that might be left
+        prefixes_to_clean = ['- ', '_ ', '. ']
+        for prefix in prefixes_to_clean:
+            if display_name.startswith(prefix):
+                display_name = display_name[len(prefix):]
+        
+        # Remove common suffixes
+        suffixes_to_clean = [' -', ' _', ' .']
+        for suffix in suffixes_to_clean:
+            if display_name.endswith(suffix):
+                display_name = display_name[:-len(suffix)]
+        
+        # Ensure proper capitalization
+        display_name = self._title_case(display_name)
+        
+        return display_name
+    
+    def _title_case(self, text: str) -> str:
+        """Apply title case with special handling for common words"""
+        # Words that should not be capitalized (except at start)
+        small_words = {
+            'a', 'an', 'and', 'as', 'at', 'but', 'by', 'for', 'if', 'in', 
+            'of', 'on', 'or', 'the', 'to', 'up', 'vs', 'via'
+        }
+        
+        words = text.split()
+        result = []
+        
+        for i, word in enumerate(words):
+            if i == 0 or word.lower() not in small_words:
+                # Capitalize first letter, keep rest as-is to preserve acronyms
+                if word:
+                    result.append(word[0].upper() + word[1:])
+                else:
+                    result.append(word)
+            else:
+                result.append(word.lower())
+        
+        return ' '.join(result)
+    
+    def deduplicate_games(self, library: GameLibrary) -> GameLibrary:
+        """Remove duplicate games and merge variants"""
+        # This is mainly for merging games that might have slightly different keys
+        # but represent the same game
+        
+        # For now, return as-is. More sophisticated deduplication can be added later
+        return library
+    
+    def get_tag_statistics(self, library: GameLibrary) -> Dict[str, Dict[str, int]]:
+        """Get statistics about tag usage per platform"""
+        stats = {}
+        
+        for platform in library.tag_registry:
+            platform_stats = {}
+            platform_games = library.get_games_for_platform(platform)
+            
+            for game in platform_games:
+                for tag in game.get_all_tags():
+                    platform_stats[tag] = platform_stats.get(tag, 0) + 1
+            
+            # Sort by frequency
+            stats[platform] = dict(sorted(platform_stats.items(), key=lambda x: x[1], reverse=True))
+        
+        return stats
+    
+    def suggest_preferred_tags(self, library: GameLibrary, platform: str) -> List[str]:
+        """Suggest preferred tags based on frequency and common patterns"""
+        tag_stats = self.get_tag_statistics(library)
+        platform_tags = tag_stats.get(platform, {})
+        
+        # Start with predefined priority tags that exist in the data
+        preferred = []
+        for tag in self.priority_tags:
+            if tag in platform_tags:
+                preferred.append(tag)
+        
+        # Add other common tags (more than 5% of games)
+        total_games = len(library.get_games_for_platform(platform))
+        if total_games > 0:
+            for tag, count in platform_tags.items():
+                if tag not in preferred and count / total_games > 0.05:
+                    preferred.append(tag)
+        
+        return preferred[:10]  # Limit to top 10

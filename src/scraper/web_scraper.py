@@ -44,8 +44,8 @@ class RomInfo:
     
     def _clean_name(self) -> str:
         """Clean the ROM name for display purposes."""
-        # Remove file extensions
-        clean = re.sub(r'\.(rvz|zip|7z|iso|bin|cue)$', '', self.name, flags=re.IGNORECASE)
+        # Remove file extensions (all supported ROM and archive formats)
+        clean = re.sub(r'\.(rvz|zip|7z|iso|bin|cue|chd|gcm|nes|sfc|smc|gba|gbc|gb|nds|n64|z64|v64|vb|pce|a26|a52|a78|cdi|gdi|wux|wud)$', '', self.name, flags=re.IGNORECASE)
         
         # Remove common prefixes/suffixes but keep region info
         clean = re.sub(r'^\[.*?\]\s*', '', clean)  # Remove [tags] at start

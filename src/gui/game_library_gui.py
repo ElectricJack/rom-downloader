@@ -55,6 +55,7 @@ class GameLibraryGUI:
         self.downloading = False
         self.existing_roms = set()  # Cache of installed ROMs
         self._gui_active = True  # Flag to track if GUI is still active
+        self._async_update_cancelled = False  # Flag to cancel async updates
         
         self.setup_ui()
         self.refresh_platform_list()
@@ -943,13 +944,22 @@ class GameLibraryGUI:
         
         logger.info(f"=== rebuild_game_tree() started with {len(games)} games ===")
         
+        # Cancel any running async installation updates since tree structure will change
+        self._async_update_cancelled = True
+        
         # Clear existing items
         clear_start = time.time()
         self.game_tree.delete(*self.game_tree.get_children())
         clear_time = time.time() - clear_start
         logger.info(f"Tree clearing took {clear_time:.2f}s")
         
-        # Auto-populate existing ROMs cache if empty and target directory exists
+        # Reset cancellation flag for new async updates
+        self._async_update_cancelled = False
+        
+        # Clear ROM cache since it's platform-specific
+        self.existing_roms = set()
+        
+        # Auto-populate existing ROMs cache and target directory exists
         target_dir = self.config_manager.get_target_directory(platform)
         logger.info(f"Target directory for platform {platform}: {target_dir}")
         
@@ -1400,7 +1410,7 @@ class GameLibraryGUI:
     def _async_update_tree_installation_status(self):
         """Update tree installation status asynchronously in chunks"""
         try:
-            if not self._gui_active or not self.current_games:
+            if not self._gui_active or not self.current_games or self._async_update_cancelled:
                 return
             
             platform = self.current_platform.get()
@@ -1416,7 +1426,8 @@ class GameLibraryGUI:
             processed = 0
             
             for i in range(0, total_items, chunk_size):
-                if not self._gui_active:
+                if not self._gui_active or self._async_update_cancelled:
+                    logger.info("Async tree update cancelled")
                     break
                 
                 chunk = tree_items[i:i + chunk_size]
@@ -1425,6 +1436,10 @@ class GameLibraryGUI:
                 updates = []
                 for item_id in chunk:
                     try:
+                        # Check if item still exists (may have been deleted during platform change)
+                        if not self.game_tree.exists(item_id):
+                            continue
+                            
                         game_key = self.game_tree.set(item_id, 'game_key')
                         if game_key:
                             # Find the game object
@@ -1466,6 +1481,10 @@ class GameLibraryGUI:
     def _prepare_game_installation_update(self, item_id: str, game, platform: str):
         """Prepare installation status update data for a game item"""
         try:
+            # Check if item still exists
+            if not self.game_tree.exists(item_id):
+                return None
+                
             variants = game.get_variants_for_platform(platform)
             installed_variants = []
             for rom in variants:
@@ -1496,6 +1515,10 @@ class GameLibraryGUI:
     def _prepare_variant_installation_update(self, item_id: str, game, platform: str):
         """Prepare installation status update data for a variant item"""
         try:
+            # Check if item still exists
+            if not self.game_tree.exists(item_id):
+                return None
+                
             variant_key = self.game_tree.set(item_id, 'variant_key')
             if not variant_key:
                 return None

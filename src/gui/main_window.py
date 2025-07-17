@@ -55,6 +55,7 @@ class MainWindow:
         self.current_target_path: Optional[Path] = None
         self.current_extract_archives: bool = False
         self.rom_tree_items: Dict[str, str] = {}  # rom.name -> tree item id
+        self.clean_name_to_name: Dict[str, str] = {}  # rom.clean_name -> rom.name mapping
         
         self.setup_ui()
         self.setup_logging()
@@ -234,6 +235,7 @@ class MainWindow:
         self.existing_roms = set()
         self.current_target_path = None
         self.current_extract_archives = False
+        self.clean_name_to_name = {}
         self.update_button_states()
         
         # Automatically start scanning for ROMs when platform is selected
@@ -475,6 +477,9 @@ class MainWindow:
             
             # Create boolean variable for selection tracking
             self.selected_roms[rom.name] = tk.BooleanVar()
+            
+            # Store mapping from clean_name to name for selection methods
+            self.clean_name_to_name[rom.clean_name] = rom.name
         
         tree_time = time.time() - tree_start
         logger.info(f"Tree view population completed in {tree_time:.2f}s")
@@ -568,9 +573,11 @@ class MainWindow:
         
         # Update visual display
         for item in self.rom_tree.get_children():
-            rom_name = self.rom_tree.item(item, 'text')
-            is_selected = rom_name in self.selected_roms and self.selected_roms[rom_name].get()
-            self._update_rom_display(item, is_selected)
+            clean_name = self.rom_tree.item(item, 'text')
+            if clean_name in self.clean_name_to_name:
+                rom_name = self.clean_name_to_name[clean_name]
+                is_selected = rom_name in self.selected_roms and self.selected_roms[rom_name].get()
+                self._update_rom_display(item, is_selected)
     
     def on_right_click(self, event):
         """Handle right-click to show context menu."""
@@ -584,19 +591,23 @@ class MainWindow:
         """Select all currently highlighted (multi-selected) ROMs."""
         selected_items = self.rom_tree.selection()
         for item in selected_items:
-            rom_name = self.rom_tree.item(item, 'text')
-            if rom_name in self.selected_roms:
-                self.selected_roms[rom_name].set(True)
-                self._update_rom_display(item, True)
+            clean_name = self.rom_tree.item(item, 'text')
+            if clean_name in self.clean_name_to_name:
+                rom_name = self.clean_name_to_name[clean_name]
+                if rom_name in self.selected_roms:
+                    self.selected_roms[rom_name].set(True)
+                    self._update_rom_display(item, True)
     
     def deselect_highlighted_roms(self):
         """Deselect all currently highlighted (multi-selected) ROMs."""
         selected_items = self.rom_tree.selection()
         for item in selected_items:
-            rom_name = self.rom_tree.item(item, 'text')
-            if rom_name in self.selected_roms:
-                self.selected_roms[rom_name].set(False)
-                self._update_rom_display(item, False)
+            clean_name = self.rom_tree.item(item, 'text')
+            if clean_name in self.clean_name_to_name:
+                rom_name = self.clean_name_to_name[clean_name]
+                if rom_name in self.selected_roms:
+                    self.selected_roms[rom_name].set(False)
+                    self._update_rom_display(item, False)
     
     def on_tree_click(self, event):
         """Handle tree click events, specifically for checkbox column."""
@@ -605,12 +616,14 @@ class MainWindow:
         
         # Check if click was on the checkbox column (#1 is first column)
         if item and column == '#1':  # Selected column
-            rom_name = self.rom_tree.item(item, 'text')
-            if rom_name in self.selected_roms:
-                # Toggle selection
-                current_value = self.selected_roms[rom_name].get()
-                self.selected_roms[rom_name].set(not current_value)
-                self._update_rom_display(item, not current_value)
+            clean_name = self.rom_tree.item(item, 'text')
+            if clean_name in self.clean_name_to_name:
+                rom_name = self.clean_name_to_name[clean_name]
+                if rom_name in self.selected_roms:
+                    # Toggle selection
+                    current_value = self.selected_roms[rom_name].get()
+                    self.selected_roms[rom_name].set(not current_value)
+                    self._update_rom_display(item, not current_value)
     
     def delete_selected_roms(self):
         """Delete selected ROMs that are installed."""

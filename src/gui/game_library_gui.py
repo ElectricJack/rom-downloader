@@ -1103,6 +1103,22 @@ class GameLibraryGUI:
         # Game must have ALL selected tags (AND logic)
         return all(any(tag.lower() == game_tag.lower() for game_tag in game_tags) for tag in filter_tags)
     
+    def rom_matches_tags(self, rom, filter_tags: Set[str] = None) -> bool:
+        """Check if ROM variant matches current tag filters"""
+        if filter_tags is None:
+            # Use all active filters (both checkbox and custom)
+            all_filters = self.active_tag_filters.copy()
+            if hasattr(self, 'custom_tag_filters'):
+                all_filters.update(self.custom_tag_filters)
+            filter_tags = all_filters
+        
+        if not filter_tags:
+            return True
+            
+        rom_tags = rom.tags
+        # ROM must have ALL selected tags (AND logic)
+        return all(any(tag.lower() == rom_tag.lower() for rom_tag in rom_tags) for tag in filter_tags)
+    
     def add_game_to_tree(self, game: Game, platform: str):
         """Add a game and its variants to the treeview"""
         # Get variants for this platform
@@ -1118,6 +1134,9 @@ class GameLibraryGUI:
         # Installation status will be updated asynchronously after ROM cache is populated
         installed_text = ""
         
+        # Filter variants based on active tag filters first
+        filtered_variants = [rom for rom in variants if self.rom_matches_tags(rom)]
+        
         # Get tags for display with grouping
         tags = game.get_all_tags()
         if tags:
@@ -1132,17 +1151,20 @@ class GameLibraryGUI:
         if selection:
             visual_tags.append('queued')
         
+        # Show filtered vs total variant count
+        variant_count_text = f"{len(filtered_variants)}/{len(variants)} variants" if len(filtered_variants) != len(variants) else f"{len(variants)} variants"
+        
         # Insert game item
         game_item = self.game_tree.insert(
             '',
             'end',
             text=game.display_name,
-            values=(queued_text, installed_text, f"{len(variants)} variants", tags_text, 'game', game.key, ''),
+            values=(queued_text, installed_text, variant_count_text, tags_text, 'game', game.key, ''),
             tags=tuple(visual_tags)
         )
         
-        # Add ROM variants as children
-        for rom in variants:
+        # Add filtered ROM variants as children
+        for rom in filtered_variants:
             # Check if this specific variant is queued
             variant_queued = ""
             if selection and selection.selected_rom_variant == rom.create_variant_key():
@@ -1169,25 +1191,25 @@ class GameLibraryGUI:
     
     def is_rom_installed(self, rom: ROM, platform: str) -> bool:
         """Check if a ROM is installed on the target drive"""
+        # First check if we have cached installation status
+        cached_status = rom.is_installed()
+        if cached_status is not None:
+            return cached_status
+        
         target_dir = self.config_manager.get_target_directory(platform)
         if not target_dir:
-            logger.debug(f"No target directory configured for platform: {platform}")
             return False
-        
-        logger.debug(f"Checking ROM installation for {rom.filename} in {target_dir}")
         
         # Check if target directory exists
         try:
             dir_exists = target_dir.exists()
-            logger.debug(f"Target directory exists: {dir_exists}")
             if not dir_exists:
-                logger.warning(f"Target directory does not exist: {target_dir}")
                 return False
         except Exception as e:
             logger.error(f"Error checking target directory existence: {e}")
             return False
         
-        # Use cached existing ROMs for fast lookup if available
+        # Use existing ROM cache for fast lookup if available
         if self.existing_roms:
             # Normalize the ROM filename for comparison (same logic as scan_existing_roms)
             # Remove last extension first, then normalize
@@ -1196,9 +1218,11 @@ class GameLibraryGUI:
                 stem = '.'.join(stem.split('.')[:-1])  # Remove last extension
             
             normalized_name = self.rom_filter._normalize_name(stem)
-            return normalized_name in self.existing_roms
-        else:
-            logger.debug("ROM cache is empty, using direct file checking")
+            result = normalized_name in self.existing_roms
+            
+            # Cache the result for future use
+            rom.set_installed(result)
+            return result
         
         # Fallback to direct checking if cache is empty
         # Create a RomInfo object from ROM for compatibility with RomFilter
@@ -1209,7 +1233,9 @@ class GameLibraryGUI:
         )
         
         result = self.rom_filter.is_rom_installed(rom_info, target_dir)
-        logger.debug(f"Direct file check result: {result}")
+        
+        # Cache the result for future use
+        rom.set_installed(result)
         return result
     
     def check_installed_roms(self):
@@ -1400,12 +1426,187 @@ class GameLibraryGUI:
             sample_roms = list(self.existing_roms)[:5]
             logger.info(f"Sample cached ROM names: {sample_roms}")
         
-        # Schedule async tree update to avoid blocking the main thread
+        # Bulk update installation cache for all games/ROMs
+        self._bulk_update_installation_cache(platform)
+        
+        # Schedule fast tree visual update using cached data
         import threading
-        thread = threading.Thread(target=self._async_update_tree_installation_status)
+        thread = threading.Thread(target=self._async_update_tree_from_cache)
         thread.daemon = True
         thread.start()
         self.update_status("Ready")
+    
+    def _bulk_update_installation_cache(self, platform: str):
+        """Bulk update installation cache for all games using directory scan results"""
+        if not self.current_games or not self.existing_roms:
+            return
+            
+        total_roms = 0
+        cached_roms = 0
+        
+        for game in self.current_games:
+            # Clear existing cache for this platform
+            game.clear_installation_cache_for_platform(platform)
+            
+            # Update cache for all variants
+            for rom in game.get_variants_for_platform(platform):
+                total_roms += 1
+                
+                # Normalize ROM filename for comparison (same logic as existing)
+                stem = rom.filename
+                if '.' in stem:
+                    stem = '.'.join(stem.split('.')[:-1])  # Remove last extension
+                
+                normalized_name = self.rom_filter._normalize_name(stem)
+                is_installed = normalized_name in self.existing_roms
+                
+                # Cache the result
+                rom.set_installed(is_installed)
+                if is_installed:
+                    cached_roms += 1
+        
+        logger.info(f"Cached installation status for {total_roms} ROMs, {cached_roms} installed")
+    
+    def _async_update_tree_from_cache(self):
+        """Fast tree update using cached installation data"""
+        try:
+            if not self._gui_active or not self.current_games or self._async_update_cancelled:
+                return
+            
+            platform = self.current_platform.get()
+            if not platform:
+                return
+            
+            # Get all tree items to update
+            tree_items = list(self.game_tree.get_children())
+            total_items = len(tree_items)
+            
+            # Process in larger chunks since we're using cached data
+            chunk_size = 100  # Larger chunks since no I/O
+            processed = 0
+            
+            for i in range(0, total_items, chunk_size):
+                if not self._gui_active or self._async_update_cancelled:
+                    logger.info("Async tree cache update cancelled")
+                    break
+                
+                chunk = tree_items[i:i + chunk_size]
+                
+                # Process this chunk using cached data
+                updates = []
+                for item_id in chunk:
+                    try:
+                        # Check if item still exists
+                        if not self.game_tree.exists(item_id):
+                            continue
+                            
+                        game_key = self.game_tree.set(item_id, 'game_key')
+                        if game_key:
+                            # Find the game object
+                            game = None
+                            for g in self.current_games:
+                                if g.key == game_key:
+                                    game = g
+                                    break
+                            
+                            if game:
+                                # Use cached installation data
+                                game_update = self._prepare_cached_game_update(item_id, game, platform)
+                                if game_update:
+                                    updates.append(game_update)
+                                
+                                # Prepare updates for child variants using cache
+                                for child_item in self.game_tree.get_children(item_id):
+                                    variant_update = self._prepare_cached_variant_update(child_item, game, platform)
+                                    if variant_update:
+                                        updates.append(variant_update)
+                    except Exception as e:
+                        logger.error(f"Error preparing cached update for tree item {item_id}: {e}")
+                
+                # Schedule GUI updates on main thread
+                if updates:
+                    self._safe_gui_update(lambda: self._apply_tree_updates(updates))
+                
+                processed += len(chunk)
+                
+                # Smaller delay since we're using cached data
+                import time
+                time.sleep(0.005)  # 5ms vs 10ms
+            
+            logger.info(f"Completed cached tree installation status update for {processed} items")
+            
+        except Exception as e:
+            logger.error(f"Error in cached tree installation status update: {e}")
+    
+    def _prepare_cached_game_update(self, item_id: str, game, platform: str):
+        """Prepare game update using cached installation data"""
+        try:
+            if not self.game_tree.exists(item_id):
+                return None
+                
+            # Use cached installation status
+            has_installed = game.has_installed_variants(platform)
+            installed_text = "✓" if has_installed else ""
+            
+            # Determine visual tags
+            current_tags = list(self.game_tree.item(item_id, 'tags'))
+            new_tags = [tag for tag in current_tags if tag not in ['installed', 'queued_installed']]
+            
+            if has_installed:
+                new_tags.append('installed')
+                if 'queued' in current_tags:
+                    new_tags.append('queued_installed')
+            
+            return {
+                'item_id': item_id,
+                'type': 'game',
+                'installed_text': installed_text,
+                'tags': tuple(new_tags)
+            }
+        except Exception as e:
+            logger.error(f"Error preparing cached game update for {item_id}: {e}")
+            return None
+    
+    def _prepare_cached_variant_update(self, item_id: str, game, platform: str):
+        """Prepare variant update using cached installation data"""
+        try:
+            if not self.game_tree.exists(item_id):
+                return None
+                
+            variant_key = self.game_tree.set(item_id, 'variant_key')
+            if not variant_key:
+                return None
+            
+            # Find the ROM variant and use cached status
+            variants = game.get_variants_for_platform(platform)
+            for rom in variants:
+                if rom.create_variant_key() == variant_key:
+                    is_installed = rom.is_installed()
+                    if is_installed is None:
+                        return None  # Cache not populated
+                    
+                    installed_text = "✓" if is_installed else ""
+                    
+                    # Determine visual tags
+                    current_tags = list(self.game_tree.item(item_id, 'tags'))
+                    new_tags = [tag for tag in current_tags if tag not in ['installed', 'queued_installed']]
+                    
+                    if is_installed:
+                        new_tags.append('installed')
+                        if 'queued' in current_tags:
+                            new_tags.append('queued_installed')
+                    
+                    return {
+                        'item_id': item_id,
+                        'type': 'variant',
+                        'installed_text': installed_text,
+                        'tags': tuple(new_tags)
+                    }
+            
+            return None
+        except Exception as e:
+            logger.error(f"Error preparing cached variant update for {item_id}: {e}")
+            return None
     
     def _async_update_tree_installation_status(self):
         """Update tree installation status asynchronously in chunks"""
@@ -1722,7 +1923,8 @@ class GameLibraryGUI:
         if item_type == 'game':
             self.toggle_game_queue(game_key, platform)
         elif item_type == 'variant':
-            self.toggle_variant_queue(game_key, platform, variant_key)
+            # Variants cannot be queued individually - ignore click
+            return
     
     def toggle_game_queue(self, game_key: str, platform: str):
         """Toggle queue status for a game (auto-select best variant)"""

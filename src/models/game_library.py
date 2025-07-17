@@ -18,6 +18,7 @@ class ROM:
     tags: Set[str] = field(default_factory=set)
     platform: str = ""
     game_key: str = ""
+    _is_installed: Optional[bool] = field(default=None, init=False)  # Cache installation status
     
     def __post_init__(self):
         """Ensure tags is always a set"""
@@ -60,6 +61,18 @@ class ROM:
         sorted_tags = sorted(self.tags)
         tag_string = '_'.join(sorted_tags) if sorted_tags else 'no_tags'
         return f"{self.file_type}_{tag_string}"
+    
+    def is_installed(self) -> Optional[bool]:
+        """Get cached installation status"""
+        return self._is_installed
+    
+    def set_installed(self, installed: bool):
+        """Set cached installation status"""
+        self._is_installed = installed
+    
+    def clear_installation_cache(self):
+        """Clear cached installation status"""
+        self._is_installed = None
 
 
 @dataclass
@@ -111,6 +124,20 @@ class Game:
         for rom in self.variants.values():
             all_tags.update(rom.tags)
         return all_tags
+    
+    def get_installed_variants(self, platform: str) -> List[ROM]:
+        """Get all installed variants for a platform (using cached status)"""
+        variants = self.get_variants_for_platform(platform)
+        return [rom for rom in variants if rom.is_installed() is True]
+    
+    def has_installed_variants(self, platform: str) -> bool:
+        """Check if any variants are installed for a platform (using cached status)"""
+        return len(self.get_installed_variants(platform)) > 0
+    
+    def clear_installation_cache_for_platform(self, platform: str):
+        """Clear installation cache for all variants of a platform"""
+        for rom in self.get_variants_for_platform(platform):
+            rom.clear_installation_cache()
 
 
 @dataclass

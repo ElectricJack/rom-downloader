@@ -99,14 +99,69 @@ class GameLibraryProcessor:
                 # Handle comma-delimited tags
                 tag_parts = [t.strip() for t in match.split(',') if t.strip()]
                 tags.update(tag_parts)
-            
-            # Remove all parenthetical/bracket content from name
+        
+        # Clean and normalize tags
+        tags = self.clean_tags(tags)
+        
+        # Remove all parenthetical/bracket content from name
+        for pattern in self.tag_patterns:
             normalized = re.sub(pattern, '', normalized)
         
         # Clean up normalized name
         normalized = re.sub(r'\s+', ' ', normalized).strip()
         
         return tags, normalized
+    
+    def clean_tags(self, tags: Set[str]) -> Set[str]:
+        """Clean and normalize tags according to rules"""
+        cleaned_tags = set()
+        
+        for tag in tags:
+            tag = tag.strip()
+            if not tag:
+                continue
+            
+            # Rule 1: Ignore tags that start with a number
+            if tag and tag[0].isdigit():
+                continue
+            
+            # Rule 2: Ignore version tags (v1, v2, etc.)
+            if re.match(r'^v\d+', tag.lower()):
+                continue
+            
+            # Rule 3: Combine tags that start with specific prefixes
+            tag_lower = tag.lower()
+            
+            # Demo tags (Demo, Demo Eizou, etc.) -> Demo
+            if tag_lower.startswith('demo'):
+                cleaned_tags.add('Demo')
+                continue
+            
+            # Proto tags (Proto, Prototype, etc.) -> Proto
+            if tag_lower.startswith('proto'):
+                cleaned_tags.add('Proto')
+                continue
+            
+            # Promo tags (Promo, Promotional, etc.) -> Promo
+            if tag_lower.startswith('promo'):
+                cleaned_tags.add('Promo')
+                continue
+            
+            # Beta tags (Beta, Beta 1, etc.) -> Beta
+            if tag_lower.startswith('beta'):
+                cleaned_tags.add('Beta')
+                continue
+            
+            # Rev tags (Rev, Rev 1, Rev A, etc.) -> Rev
+            # But keep "Revision" as it's a different word
+            if tag_lower.startswith('rev') and (tag_lower == 'rev' or tag_lower.startswith('rev ')):
+                cleaned_tags.add('Rev')
+                continue
+            
+            # If none of the rules apply, keep the original tag
+            cleaned_tags.add(tag)
+        
+        return cleaned_tags
     
     def create_game_key(self, filename: str) -> str:
         """Create consistent game key from filename"""

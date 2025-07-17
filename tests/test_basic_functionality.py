@@ -194,8 +194,8 @@ class TestGameLibraryProcessor(unittest.TestCase):
             ("Super Mario Bros (USA).nes", {"USA"}, "Super Mario Bros"),
             ("Zelda (USA, Europe).sfc", {"USA", "Europe"}, "Zelda"),
             ("Final Fantasy [En] (USA).nes", {"En", "USA"}, "Final Fantasy"),
-            ("Sonic (Rev A) (USA).bin", {"Rev A", "USA"}, "Sonic"),
-            ("Mario Kart (USA, Rev 1.1).iso", {"USA", "Rev 1.1"}, "Mario Kart")
+            ("Sonic (Rev A) (USA).bin", {"Rev", "USA"}, "Sonic"),
+            ("Mario Kart (USA, Rev 1.1).iso", {"USA", "Rev"}, "Mario Kart")
         ]
         
         for filename, expected_tags, expected_name in test_cases:

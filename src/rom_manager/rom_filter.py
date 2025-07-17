@@ -85,6 +85,7 @@ class RomFilter:
             r'\(us\)', 
             r'\(usa\)',
             r'\(e\)',
+            r'\(eu\)',
             r'\(eur\)',
             r'\(europe\)',
             r'\(j\)',
@@ -106,13 +107,15 @@ class RomFilter:
             r'\[o\d*\]',  # Overdumps
             r'\[t\d*\]',  # Trained versions
             r'\[tr\]',    # Translated
+            # DS-specific patterns
+            r'\(m\d+\)',  # DS dump versions like (M5), (M6)
         ]
         
         for pattern in region_and_quality_patterns:
             normalized = re.sub(pattern, '', normalized, flags=re.IGNORECASE)
         
-        # Remove numeric prefixes (common in GBA collections: "0001 - Game Name")
-        normalized = re.sub(r'^\d{3,4}\s*-\s*', '', normalized)
+        # Remove numeric prefixes (common in GBA/DS collections: "0001 - Game Name" or "0001 Game Name")
+        normalized = re.sub(r'^\d{3,4}\s*-?\s*', '', normalized)
         
         # Remove common variations
         normalized = re.sub(r'\s*[-_]\s*', ' ', normalized)  # Normalize separators

@@ -78,35 +78,38 @@ class RomFilter:
         # Convert to lowercase
         normalized = name.lower()
         
-        # Normalize region codes before removing special characters
-        region_mappings = {
-            # Standard region codes to full names
-            r'\(u\)': '(usa)',
-            r'\(us\)': '(usa)', 
-            r'\(usa\)': '(usa)',
-            r'\(e\)': '(europe)',
-            r'\(eur\)': '(europe)',
-            r'\(europe\)': '(europe)',
-            r'\(j\)': '(japan)',
-            r'\(jp\)': '(japan)',
-            r'\(japan\)': '(japan)',
-            r'\(ju\)': '(japan usa)',
-            r'\(ue\)': '(usa europe)',
-            r'\(japan,?\s*usa\)': '(japan usa)',
-            r'\(usa,?\s*europe\)': '(usa europe)',
-            # Remove quality indicators
-            r'\[!\]': '',
-            r'\[a\d*\]': '',  # Alternate versions
-            r'\[b\d*\]': '',  # Bad dumps
-            r'\[f\d*\]': '',  # Fixed versions
-            r'\[h\d*\]': '',  # Hacked versions
-            r'\[o\d*\]': '',  # Overdumps
-            r'\[t\d*\]': '',  # Trained versions
-            r'\[tr\]': '',    # Translated
-        }
+        # Remove region codes and quality indicators entirely for comparison
+        region_and_quality_patterns = [
+            # Region codes (remove completely for comparison)
+            r'\(u\)',
+            r'\(us\)', 
+            r'\(usa\)',
+            r'\(e\)',
+            r'\(eur\)',
+            r'\(europe\)',
+            r'\(j\)',
+            r'\(jp\)',
+            r'\(japan\)',
+            r'\(ju\)',
+            r'\(ue\)',
+            r'\(japan,?\s*usa\)',
+            r'\(usa,?\s*europe\)',
+            r'\(world\)',
+            r'\(en\)',
+            r'\(english\)',
+            # Quality indicators
+            r'\[!\]',
+            r'\[a\d*\]',  # Alternate versions
+            r'\[b\d*\]',  # Bad dumps
+            r'\[f\d*\]',  # Fixed versions
+            r'\[h\d*\]',  # Hacked versions
+            r'\[o\d*\]',  # Overdumps
+            r'\[t\d*\]',  # Trained versions
+            r'\[tr\]',    # Translated
+        ]
         
-        for pattern, replacement in region_mappings.items():
-            normalized = re.sub(pattern, replacement, normalized)
+        for pattern in region_and_quality_patterns:
+            normalized = re.sub(pattern, '', normalized, flags=re.IGNORECASE)
         
         # Remove numeric prefixes (common in GBA collections: "0001 - Game Name")
         normalized = re.sub(r'^\d{3,4}\s*-\s*', '', normalized)

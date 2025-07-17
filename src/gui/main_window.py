@@ -160,7 +160,7 @@ class MainWindow:
         list_frame.rowconfigure(0, weight=1)
         
         # Create treeview for ROM list
-        self.rom_tree = ttk.Treeview(list_frame, columns=('selected', 'region', 'size', 'type', 'installed'), show='tree headings')
+        self.rom_tree = ttk.Treeview(list_frame, columns=('selected', 'region', 'size', 'type', 'installed'), show='tree headings', selectmode='extended')
         self.rom_tree.heading('#0', text='ROM Name')
         self.rom_tree.heading('selected', text='☐')  # Checkbox symbol
         self.rom_tree.heading('region', text='Region')
@@ -187,6 +187,16 @@ class MainWindow:
         # Bind single-click for checkbox column and double-click to toggle selection
         self.rom_tree.bind('<Button-1>', self.on_tree_click)
         self.rom_tree.bind('<Double-1>', self.toggle_rom_selection)
+        self.rom_tree.bind('<Button-3>', self.on_right_click)  # Right-click context menu
+        
+        # Create context menu
+        self.context_menu = tk.Menu(self.root, tearoff=0)
+        self.context_menu.add_command(label="Select Highlighted ROMs", command=self.select_highlighted_roms)
+        self.context_menu.add_command(label="Deselect Highlighted ROMs", command=self.deselect_highlighted_roms)
+        self.context_menu.add_separator()
+        self.context_menu.add_command(label="Select All", command=self.select_all_roms)
+        self.context_menu.add_command(label="Deselect All", command=self.deselect_all_roms)
+        self.context_menu.add_command(label="Select Not Installed", command=self.select_not_installed_roms)
         
         # Status frame
         status_frame = ttk.Frame(main_frame)
@@ -496,14 +506,13 @@ class MainWindow:
         """Update the visual display of a ROM's selection state."""
         current_tags = list(self.rom_tree.item(item, 'tags'))
         
+        # Update selection tag
         if selected:
             if 'selected' not in current_tags:
                 current_tags.append('selected')
         else:
             if 'selected' in current_tags:
                 current_tags.remove('selected')
-        
-        self.rom_tree.item(item, tags=tuple(current_tags))
         
         # Update checkbox symbol in the selected column
         current_values = list(self.rom_tree.item(item, 'values'))
@@ -512,9 +521,23 @@ class MainWindow:
             current_values[0] = checkbox_symbol  # First column is the checkbox
             self.rom_tree.item(item, values=tuple(current_values))
         
-        # Configure tag appearance
-        self.rom_tree.tag_configure('selected', background='lightblue')
-        self.rom_tree.tag_configure('installed', background='lightgreen')
+        # Determine the appropriate tag based on selection and installation status
+        is_installed = any(tag for tag in current_tags if tag.endswith('installed'))
+        final_tags = [tag for tag in current_tags if not tag.startswith('visual_')]
+        
+        if selected and is_installed:
+            final_tags.append('visual_selected_installed')
+        elif selected:
+            final_tags.append('visual_selected')
+        elif is_installed:
+            final_tags.append('visual_installed')
+        
+        self.rom_tree.item(item, tags=tuple(final_tags))
+        
+        # Configure tag appearances
+        self.rom_tree.tag_configure('visual_selected', background='lightblue')
+        self.rom_tree.tag_configure('visual_installed', background='lightgreen')
+        self.rom_tree.tag_configure('visual_selected_installed', background='darkgreen', foreground='white')
     
     def select_all_roms(self):
         """Select all ROMs in the list."""
@@ -548,6 +571,32 @@ class MainWindow:
             rom_name = self.rom_tree.item(item, 'text')
             is_selected = rom_name in self.selected_roms and self.selected_roms[rom_name].get()
             self._update_rom_display(item, is_selected)
+    
+    def on_right_click(self, event):
+        """Handle right-click to show context menu."""
+        # Show context menu at cursor position
+        try:
+            self.context_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self.context_menu.grab_release()
+    
+    def select_highlighted_roms(self):
+        """Select all currently highlighted (multi-selected) ROMs."""
+        selected_items = self.rom_tree.selection()
+        for item in selected_items:
+            rom_name = self.rom_tree.item(item, 'text')
+            if rom_name in self.selected_roms:
+                self.selected_roms[rom_name].set(True)
+                self._update_rom_display(item, True)
+    
+    def deselect_highlighted_roms(self):
+        """Deselect all currently highlighted (multi-selected) ROMs."""
+        selected_items = self.rom_tree.selection()
+        for item in selected_items:
+            rom_name = self.rom_tree.item(item, 'text')
+            if rom_name in self.selected_roms:
+                self.selected_roms[rom_name].set(False)
+                self._update_rom_display(item, False)
     
     def on_tree_click(self, event):
         """Handle tree click events, specifically for checkbox column."""

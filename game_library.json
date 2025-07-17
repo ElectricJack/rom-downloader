@@ -1,0 +1,59 @@
+{
+  "version": "2.0",
+  "timestamp": "2025-07-17T11:43:39.893017",
+  "games": {
+    "test_rom_2": {
+      "key": "test_rom_2",
+      "display_name": "test_rom_2",
+      "platforms": [
+        "TestPlatform"
+      ],
+      "variants": {
+        "_no_tags": {
+          "filename": "test_rom_2",
+          "url": "",
+          "size": "",
+          "file_type": "",
+          "tags": [],
+          "platform": "TestPlatform",
+          "game_key": ""
+        }
+      }
+    },
+    "test_rom_1": {
+      "key": "test_rom_1",
+      "display_name": "test_rom_1",
+      "platforms": [
+        "TestPlatform"
+      ],
+      "variants": {
+        "_no_tags": {
+          "filename": "test_rom_1",
+          "url": "",
+          "size": "",
+          "file_type": "",
+          "tags": [],
+          "platform": "TestPlatform",
+          "game_key": ""
+        }
+      }
+    }
+  },
+  "selections": {
+    "TestPlatform:test_rom_2": {
+      "game_key": "test_rom_2",
+      "platform": "TestPlatform",
+      "selected_rom_variant": "_no_tags",
+      "timestamp": "2025-07-17T11:43:39.857232"
+    },
+    "TestPlatform:test_rom_1": {
+      "game_key": "test_rom_1",
+      "platform": "TestPlatform",
+      "selected_rom_variant": "_no_tags",
+      "timestamp": "2025-07-17T11:43:39.893008"
+    }
+  },
+  "tag_registry": {
+    "TestPlatform": []
+  }
+}

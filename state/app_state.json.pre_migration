@@ -1,0 +1,20 @@
+{
+  "version": "1.0",
+  "created": "2025-07-13T09:32:02.697816",
+  "last_updated": "2025-07-13T09:37:02.705386",
+  "platforms": {
+    "TestPlatform": {
+      "selected_roms": [
+        "test_rom_1",
+        "test_rom_2"
+      ],
+      "last_updated": "2025-07-13T09:37:02.705374",
+      "selection_count": 2
+    }
+  },
+  "app_settings": {
+    "last_selected_platform": "",
+    "window_geometry": "800x600",
+    "auto_save_selections": true
+  }
+}

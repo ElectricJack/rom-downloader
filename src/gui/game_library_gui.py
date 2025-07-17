@@ -9,29 +9,31 @@ from typing import Dict, Set, List, Optional, Callable
 from pathlib import Path
 
 from models.game_library import Game, ROM, GameLibrary
-from state.transactional_state_manager import TransactionalStateManager
+from state.distributed_state_manager import DistributedStateManager
 from config.enhanced_config_manager import EnhancedConfigManager
 from downloader.enhanced_download_manager import EnhancedDownloadManager, DownloadProgress, DownloadResult
 from processors.game_library_processor import GameLibraryProcessor
-from scraper.web_scraper import WebScraper
+from scraper.web_scraper import WebScraper, RomInfo
+from rom_manager.rom_filter import RomFilter
 
 logger = logging.getLogger(__name__)
 
 
 class GameLibraryGUI:
-    """Game library GUI with dynamic filtering"""
+    """Game library GUI with dynamic filtering and tree view"""
     
     def __init__(self, root: tk.Tk = None):
         self.root = root or tk.Tk()
         self.root.title("ROM Downloader - Game Library")
-        self.root.geometry("1200x800")
+        self.root.geometry("1600x800")
         
         # Initialize managers
         self.config_manager = EnhancedConfigManager()
-        self.state_manager = TransactionalStateManager()
+        self.state_manager = DistributedStateManager()
         self.download_manager = EnhancedDownloadManager(self.config_manager)
         self.library_processor = GameLibraryProcessor()
         self.web_scraper = WebScraper()
+        self.rom_filter = RomFilter()
         
         # GUI state
         self.current_platform = tk.StringVar()
@@ -45,13 +47,13 @@ class GameLibraryGUI:
         self.tag_buttons = {}
         self.tag_variables = {}
         self.game_tree = None
-        self.variant_list = None
         self.progress_bar = None
         self.status_label = None
         
         # Data
         self.current_games = []
         self.downloading = False
+        self.existing_roms = set()  # Cache of installed ROMs
         
         self.setup_ui()
         self.refresh_platform_list()
@@ -71,7 +73,7 @@ class GameLibraryGUI:
         # Middle section - Tag filters
         self.setup_tag_filters(main_frame)
         
-        # Main content area
+        # Main content area - Single tree view
         self.setup_main_content(main_frame)
         
         # Bottom section - Progress and status
@@ -104,6 +106,7 @@ class GameLibraryGUI:
         
         # Buttons
         ttk.Button(top_frame, text="Scan ROMs", command=self.scan_roms).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(top_frame, text="Check Installed", command=self.check_installed_roms).pack(side=tk.LEFT, padx=(0, 5))
         ttk.Button(top_frame, text="Download Selected", command=self.download_selected).pack(side=tk.LEFT, padx=(0, 5))
         ttk.Button(top_frame, text="Clear Selections", command=self.clear_selections).pack(side=tk.LEFT)
     
@@ -123,54 +126,297 @@ class GameLibraryGUI:
         )
         self.clear_filters_button.pack(side=tk.LEFT)
         
-        # Container for tag buttons
-        self.tag_container = ttk.Frame(self.tag_frame)
-        self.tag_container.pack(fill=tk.X, padx=5, pady=5)
+        # Container for tag groups
+        self.tag_groups_container = ttk.Frame(self.tag_frame)
+        self.tag_groups_container.pack(fill=tk.X, padx=5, pady=5)
+        
+        # Individual group containers
+        self.language_group_frame = None
+        self.country_group_frame = None
+        self.other_group_frame = None
+        
+        # Custom tag input setup
+        self.setup_custom_tag_input()
+    
+    def setup_custom_tag_input(self):
+        """Set up the custom tag input field with auto-completion"""
+        # Custom tag input frame
+        self.custom_tag_frame = ttk.LabelFrame(self.tag_groups_container, text="Additional Tags (type to filter)")
+        
+        # Input frame
+        input_frame = ttk.Frame(self.custom_tag_frame)
+        input_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        # Tag input field
+        self.custom_tag_var = tk.StringVar()
+        self.custom_tag_var.trace('w', self.on_custom_tag_change)
+        
+        self.custom_tag_entry = ttk.Entry(
+            input_frame, 
+            textvariable=self.custom_tag_var,
+            font=('TkDefaultFont', 9)
+        )
+        self.custom_tag_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
+        
+        # Add button
+        self.add_tag_button = ttk.Button(
+            input_frame,
+            text="Add",
+            command=self.add_custom_tag,
+            width=8
+        )
+        self.add_tag_button.pack(side=tk.RIGHT)
+        
+        # Active custom tags display
+        self.active_tags_frame = ttk.Frame(self.custom_tag_frame)
+        self.active_tags_frame.pack(fill=tk.X, padx=5, pady=(0, 5))
+        
+        # Auto-completion listbox (initially hidden)
+        self.completion_frame = ttk.Frame(self.custom_tag_frame)
+        self.completion_listbox = tk.Listbox(
+            self.completion_frame,
+            height=6,
+            font=('TkDefaultFont', 8)
+        )
+        self.completion_listbox.pack(fill=tk.X, padx=5)
+        
+        # Bind events for auto-completion
+        self.custom_tag_entry.bind('<KeyRelease>', self.on_tag_entry_keyrelease)
+        self.custom_tag_entry.bind('<FocusOut>', self.hide_completion)
+        self.custom_tag_entry.bind('<Return>', self.on_tag_entry_return)
+        self.custom_tag_entry.bind('<Tab>', self.on_tag_entry_tab)
+        self.completion_listbox.bind('<Double-Button-1>', self.on_completion_select)
+        self.completion_listbox.bind('<Return>', self.on_completion_select)
+        
+        # Track state
+        self.custom_tag_filters = set()
+        self.available_other_tags = set()
+        self.active_tag_buttons = {}
+        self.completion_visible = False
+    
+    def on_custom_tag_change(self, *args):
+        """Handle custom tag input change"""
+        self.update_auto_completion()
+    
+    def on_tag_entry_keyrelease(self, event):
+        """Handle key release in tag entry"""
+        if event.keysym in ('Up', 'Down'):
+            self.navigate_completion(event.keysym)
+        elif event.keysym == 'Escape':
+            self.hide_completion()
+        else:
+            self.update_auto_completion()
+    
+    def on_tag_entry_return(self, event):
+        """Handle Enter key in tag entry"""
+        if self.completion_visible and self.completion_listbox.curselection():
+            self.select_completion()
+        else:
+            self.add_custom_tag()
+        return 'break'
+    
+    def on_tag_entry_tab(self, event):
+        """Handle Tab key in tag entry"""
+        if self.completion_visible and self.completion_listbox.curselection():
+            self.select_completion()
+            return 'break'
+    
+    def on_completion_select(self, event=None):
+        """Handle selection from completion listbox"""
+        self.select_completion()
+    
+    def navigate_completion(self, direction):
+        """Navigate through completion options"""
+        if not self.completion_visible:
+            return
+        
+        current = self.completion_listbox.curselection()
+        size = self.completion_listbox.size()
+        
+        if size == 0:
+            return
+        
+        if not current:
+            # No selection, select first or last
+            new_index = 0 if direction == 'Down' else size - 1
+        else:
+            current_index = current[0]
+            if direction == 'Down':
+                new_index = (current_index + 1) % size
+            else:
+                new_index = (current_index - 1) % size
+        
+        self.completion_listbox.selection_clear(0, tk.END)
+        self.completion_listbox.selection_set(new_index)
+        self.completion_listbox.see(new_index)
+    
+    def select_completion(self):
+        """Select the highlighted completion"""
+        if not self.completion_visible:
+            return
+        
+        selection = self.completion_listbox.curselection()
+        if selection:
+            tag = self.completion_listbox.get(selection[0])
+            self.custom_tag_var.set(tag)
+            self.hide_completion()
+            # Focus back to entry and position cursor at end
+            self.custom_tag_entry.focus_set()
+            self.custom_tag_entry.icursor(tk.END)
+    
+    def update_auto_completion(self):
+        """Update auto-completion suggestions"""
+        current_text = self.custom_tag_var.get().strip().lower()
+        
+        if len(current_text) < 1:
+            self.hide_completion()
+            return
+        
+        # Find matching tags
+        matches = []
+        for tag in self.available_other_tags:
+            if (tag.lower().startswith(current_text) and 
+                tag.lower() not in {t.lower() for t in self.custom_tag_filters}):
+                matches.append(tag)
+        
+        # Sort matches - exact matches first, then alphabetically
+        matches.sort(key=lambda x: (not x.lower().startswith(current_text), x.lower()))
+        
+        if matches:
+            self.show_completion(matches[:10])  # Show top 10 matches
+        else:
+            self.hide_completion()
+    
+    def show_completion(self, matches):
+        """Show auto-completion listbox with matches"""
+        self.completion_listbox.delete(0, tk.END)
+        for match in matches:
+            self.completion_listbox.insert(tk.END, match)
+        
+        if not self.completion_visible:
+            self.completion_frame.pack(fill=tk.X, pady=(0, 5))
+            self.completion_visible = True
+        
+        # Auto-select first item
+        if matches:
+            self.completion_listbox.selection_set(0)
+    
+    def hide_completion(self, event=None):
+        """Hide auto-completion listbox"""
+        if self.completion_visible:
+            self.completion_frame.pack_forget()
+            self.completion_visible = False
+    
+    def add_custom_tag(self):
+        """Add custom tag to filters"""
+        tag_text = self.custom_tag_var.get().strip()
+        if not tag_text:
+            return
+        
+        # Find the exact tag name (case-insensitive match)
+        exact_tag = None
+        for available_tag in self.available_other_tags:
+            if available_tag.lower() == tag_text.lower():
+                exact_tag = available_tag
+                break
+        
+        # Use exact tag if found, otherwise use typed text
+        tag_to_add = exact_tag if exact_tag else tag_text
+        
+        if tag_to_add and tag_to_add not in self.custom_tag_filters:
+            self.custom_tag_filters.add(tag_to_add)
+            self.active_tag_filters.add(tag_to_add)
+            self.create_active_tag_button(tag_to_add)
+            self.custom_tag_var.set("")
+            self.hide_completion()
+            self.refresh_game_list()
+    
+    def create_active_tag_button(self, tag):
+        """Create a button for an active custom tag"""
+        button_frame = ttk.Frame(self.active_tags_frame)
+        button_frame.pack(side=tk.LEFT, padx=2, pady=2)
+        
+        # Tag label
+        label = ttk.Label(
+            button_frame, 
+            text=tag,
+            background='lightblue',
+            padding=(4, 2)
+        )
+        label.pack(side=tk.LEFT)
+        
+        # Remove button
+        remove_btn = ttk.Button(
+            button_frame,
+            text="×",
+            width=3,
+            command=lambda t=tag: self.remove_custom_tag(t)
+        )
+        remove_btn.pack(side=tk.LEFT)
+        
+        self.active_tag_buttons[tag] = button_frame
+    
+    def remove_custom_tag(self, tag):
+        """Remove custom tag from filters"""
+        if tag in self.custom_tag_filters:
+            self.custom_tag_filters.discard(tag)
+            self.active_tag_filters.discard(tag)
+            
+            # Remove button
+            if tag in self.active_tag_buttons:
+                self.active_tag_buttons[tag].destroy()
+                del self.active_tag_buttons[tag]
+            
+            self.refresh_game_list()
+    
+    def clear_custom_tags(self):
+        """Clear all custom tag filters"""
+        self.custom_tag_filters.clear()
+        self.custom_tag_var.set("")
+        self.hide_completion()
+        
+        # Remove all active tag buttons
+        for button_frame in self.active_tag_buttons.values():
+            button_frame.destroy()
+        self.active_tag_buttons.clear()
     
     def setup_main_content(self, parent):
-        """Set up the main content area"""
-        content_frame = ttk.Frame(parent)
+        """Set up the main content area with single tree view"""
+        content_frame = ttk.LabelFrame(parent, text="Games & ROM Variants")
         content_frame.pack(fill=tk.BOTH, expand=True)
         
-        # Configure grid weights
-        content_frame.grid_columnconfigure(0, weight=2)
-        content_frame.grid_columnconfigure(1, weight=1)
-        content_frame.grid_rowconfigure(0, weight=1)
-        
-        # Game list (left side)
-        self.setup_game_list(content_frame)
-        
-        # Variant details (right side)
-        self.setup_variant_details(content_frame)
-    
-    def setup_game_list(self, parent):
-        """Set up the game list treeview"""
-        game_frame = ttk.LabelFrame(parent, text="Games")
-        game_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 5))
-        
         # Configure grid
-        game_frame.grid_rowconfigure(0, weight=1)
-        game_frame.grid_columnconfigure(0, weight=1)
+        content_frame.grid_rowconfigure(0, weight=1)
+        content_frame.grid_columnconfigure(0, weight=1)
         
-        # Create treeview
-        columns = ('selected', 'variants', 'tags', 'game_key')
-        self.game_tree = ttk.Treeview(game_frame, columns=columns, show='tree headings')
+        # Create treeview with installed column
+        columns = ('selected', 'installed', 'size', 'tags', 'item_type', 'game_key', 'variant_key')
+        self.game_tree = ttk.Treeview(content_frame, columns=columns, show='tree headings')
         
         # Configure columns
-        self.game_tree.heading('#0', text='Game')
+        self.game_tree.heading('#0', text='Name')
         self.game_tree.heading('selected', text='Selected')
-        self.game_tree.heading('variants', text='Variants')
+        self.game_tree.heading('installed', text='Installed')
+        self.game_tree.heading('size', text='Size')
         self.game_tree.heading('tags', text='Tags')
         
-        self.game_tree.column('#0', width=300)
+        self.game_tree.column('#0', width=400)
         self.game_tree.column('selected', width=80, anchor='center')
-        self.game_tree.column('variants', width=80, anchor='center')
-        self.game_tree.column('tags', width=200)
-        self.game_tree.column('game_key', width=0, stretch=False)  # Hidden column for data storage
+        self.game_tree.column('installed', width=80, anchor='center')
+        self.game_tree.column('size', width=100, anchor='center')
+        self.game_tree.column('tags', width=300)
+        self.game_tree.column('item_type', width=0, stretch=False)  # Hidden
+        self.game_tree.column('game_key', width=0, stretch=False)   # Hidden
+        self.game_tree.column('variant_key', width=0, stretch=False) # Hidden
+        
+        # Configure tree tag styles
+        self.game_tree.tag_configure('installed', background='lightgreen')
+        self.game_tree.tag_configure('selected', background='lightblue')
+        self.game_tree.tag_configure('selected_installed', background='darkgreen', foreground='white')
         
         # Scrollbars
-        tree_scroll_y = ttk.Scrollbar(game_frame, orient=tk.VERTICAL, command=self.game_tree.yview)
-        tree_scroll_x = ttk.Scrollbar(game_frame, orient=tk.HORIZONTAL, command=self.game_tree.xview)
+        tree_scroll_y = ttk.Scrollbar(content_frame, orient=tk.VERTICAL, command=self.game_tree.yview)
+        tree_scroll_x = ttk.Scrollbar(content_frame, orient=tk.HORIZONTAL, command=self.game_tree.xview)
         self.game_tree.configure(yscrollcommand=tree_scroll_y.set, xscrollcommand=tree_scroll_x.set)
         
         # Pack components
@@ -179,42 +425,9 @@ class GameLibraryGUI:
         tree_scroll_x.grid(row=1, column=0, sticky=(tk.W, tk.E))
         
         # Bind events
-        self.game_tree.bind('<Button-1>', self.on_game_click)
-        self.game_tree.bind('<Double-Button-1>', self.on_game_double_click)
-        self.game_tree.bind('<<TreeviewSelect>>', self.on_game_select)
-    
-    def setup_variant_details(self, parent):
-        """Set up the variant details panel"""
-        details_frame = ttk.LabelFrame(parent, text="ROM Variants")
-        details_frame.grid(row=0, column=1, sticky=(tk.W, tk.E, tk.N, tk.S))
-        
-        # Configure grid
-        details_frame.grid_rowconfigure(0, weight=1)
-        details_frame.grid_columnconfigure(0, weight=1)
-        
-        # Variant list
-        variant_columns = ('filename', 'size', 'tags')
-        self.variant_list = ttk.Treeview(details_frame, columns=variant_columns, show='headings')
-        
-        # Configure columns
-        self.variant_list.heading('filename', text='Filename')
-        self.variant_list.heading('size', text='Size')
-        self.variant_list.heading('tags', text='Tags')
-        
-        self.variant_list.column('filename', width=200)
-        self.variant_list.column('size', width=80)
-        self.variant_list.column('tags', width=150)
-        
-        # Scrollbar
-        variant_scroll = ttk.Scrollbar(details_frame, orient=tk.VERTICAL, command=self.variant_list.yview)
-        self.variant_list.configure(yscrollcommand=variant_scroll.set)
-        
-        # Pack components
-        self.variant_list.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
-        variant_scroll.grid(row=0, column=1, sticky=(tk.N, tk.S))
-        
-        # Bind events
-        self.variant_list.bind('<Double-Button-1>', self.on_variant_select)
+        self.game_tree.bind('<Button-1>', self.on_tree_click)
+        self.game_tree.bind('<Double-Button-1>', self.on_tree_double_click)
+        self.game_tree.bind('<<TreeviewSelect>>', self.on_tree_select)
     
     def setup_bottom_section(self, parent):
         """Set up the bottom section with progress and status"""
@@ -286,90 +499,239 @@ class GameLibraryGUI:
             # Save the last selected platform
             self.state_manager.set_last_selected_platform(platform)
             self.update_tag_buttons(platform)
+            # Clear existing ROM cache when platform changes
+            self.existing_roms.clear()
+            # Force a full rebuild since platform changed
+            self.current_games = []  # This will trigger a rebuild
             self.refresh_game_list()
     
     def update_tag_buttons(self, platform: str):
         """Update tag filter buttons for the selected platform"""
-        # Clear existing buttons
+        # Clear existing buttons and groups
         for button in self.tag_buttons.values():
             button.destroy()
         self.tag_buttons.clear()
         self.tag_variables.clear()
-        self.active_tag_filters.clear()
         
-        # Get tags for this platform
-        tags = self.state_manager.get_platform_tags(platform)
-        if not tags:
+        # Clear custom tag filters
+        self.clear_custom_tags()
+        
+        if self.language_group_frame:
+            self.language_group_frame.destroy()
+        if self.country_group_frame:
+            self.country_group_frame.destroy()
+        if self.other_group_frame:
+            self.other_group_frame.destroy()
+        
+        # Get tags for platform
+        platform_tags = self.state_manager.get_platform_tags(platform)
+        if not platform_tags:
             return
         
-        # Create toggle buttons for each tag
-        for i, tag in enumerate(sorted(tags)):
+        # Categorize tags
+        categorized_tags = self.library_processor.categorize_tags(platform_tags)
+        
+        # Store available other tags for auto-completion
+        self.available_other_tags = categorized_tags.get('other', set())
+        
+        # Create tag group frames
+        current_row = 0
+        
+        # Language tags
+        if categorized_tags.get('language'):
+            self.language_group_frame = ttk.LabelFrame(self.tag_groups_container, text="Languages")
+            self.language_group_frame.grid(row=current_row, column=0, sticky=(tk.W, tk.E), padx=(0, 5), pady=2)
+            self.create_tag_buttons(self.language_group_frame, categorized_tags['language'])
+            current_row += 1
+        
+        # Country/Region tags
+        if categorized_tags.get('country'):
+            self.country_group_frame = ttk.LabelFrame(self.tag_groups_container, text="Regions")
+            self.country_group_frame.grid(row=current_row, column=0, sticky=(tk.W, tk.E), padx=(0, 5), pady=2)
+            self.create_tag_buttons(self.country_group_frame, categorized_tags['country'])
+            current_row += 1
+        
+        # Custom tag input (replaces Other group)
+        if self.available_other_tags:
+            self.custom_tag_frame.grid(row=current_row, column=0, sticky=(tk.W, tk.E), padx=(0, 5), pady=2)
+            # Update the label to show count
+            tag_count = len(self.available_other_tags)
+            self.custom_tag_frame.configure(text=f"Additional Tags ({tag_count} available - type to filter)")
+    
+    def create_tag_buttons(self, parent_frame: ttk.LabelFrame, tags: Set[str]):
+        """Create toggle buttons for a set of tags"""
+        # Sort tags for consistent display
+        sorted_tags = sorted(tags)
+        
+        # Create buttons in rows
+        row = 0
+        col = 0
+        max_cols = 6
+        
+        for tag in sorted_tags:
             var = tk.BooleanVar()
+            self.tag_variables[tag] = var
+            
             button = ttk.Checkbutton(
-                self.tag_container,
+                parent_frame,
                 text=tag,
                 variable=var,
-                command=lambda t=tag, v=var: self.toggle_tag_filter(t, v)
+                command=lambda t=tag: self.on_tag_filter_change(t)
             )
-            button.grid(row=i // 8, column=i % 8, padx=2, pady=2, sticky=tk.W)
+            button.grid(row=row, column=col, sticky=tk.W, padx=2, pady=1)
+            
             self.tag_buttons[tag] = button
-            self.tag_variables[tag] = var
+            
+            col += 1
+            if col >= max_cols:
+                col = 0
+                row += 1
     
-    def toggle_tag_filter(self, tag: str, var: tk.BooleanVar):
-        """Toggle tag filter on/off"""
-        if var.get():
+    def on_tag_filter_change(self, tag: str):
+        """Handle tag filter button toggle"""
+        if self.tag_variables[tag].get():
             self.active_tag_filters.add(tag)
         else:
             self.active_tag_filters.discard(tag)
         
-        self.refresh_game_list()
+        # Use fast filtering instead of full refresh
+        self.apply_filters_to_tree()
     
     def clear_tag_filters(self):
-        """Clear all tag filters"""
+        """Clear all active tag filters"""
         self.active_tag_filters.clear()
         
-        # Uncheck all tag buttons
+        # Clear all tag button states
         for var in self.tag_variables.values():
             var.set(False)
         
-        # Refresh the game list
-        self.refresh_game_list()
+        # Clear custom tags
+        self.clear_custom_tags()
+        
+        # Use fast filtering instead of full refresh
+        self.apply_filters_to_tree()
     
     def on_search_change(self, *args):
-        """Handle search query change"""
-        self.refresh_game_list()
+        """Handle search text change"""
+        # Use fast filtering instead of full refresh
+        self.apply_filters_to_tree()
     
     def refresh_game_list(self):
-        """Refresh the game list with current filters"""
+        """Refresh the game list display"""
         platform = self.current_platform.get()
         if not platform:
             return
-        
-        # Clear existing items
-        self.game_tree.delete(*self.game_tree.get_children())
-        
+
         # Get games for platform
         games = self.state_manager.get_games_for_platform(platform)
         
-        # Apply filters
-        filtered_games = self.apply_filters(games)
+        # Check if we need to rebuild the tree (data has changed)
+        if self.current_games != games:
+            self.rebuild_game_tree(games, platform)
+        else:
+            # Just apply filters to existing tree (much faster)
+            self.apply_filters_to_tree()
+    
+    def rebuild_game_tree(self, games: List[Game], platform: str):
+        """Rebuild the entire game tree (only when data changes)"""
+        # Clear existing items
+        self.game_tree.delete(*self.game_tree.get_children())
         
-        # Populate tree
-        for game in filtered_games:
+        # Auto-populate existing ROMs cache if empty and target directory exists
+        if not self.existing_roms:
+            target_dir = self.config_manager.get_target_directory(platform)
+            if target_dir and target_dir.exists():
+                try:
+                    self.update_status("Checking for installed ROMs...")
+                    self.existing_roms = self.rom_filter.scan_existing_roms(target_dir)
+                    logger.info(f"Auto-populated existing ROMs cache: {len(self.existing_roms)} ROMs found")
+                except Exception as e:
+                    logger.warning(f"Failed to scan existing ROMs: {e}")
+                    self.existing_roms = set()
+
+        # Populate tree with all games (no filtering during build)
+        for game in games:
             self.add_game_to_tree(game, platform)
+
+        self.current_games = games
         
-        self.current_games = filtered_games
+        # Apply filters to the newly built tree
+        self.apply_filters_to_tree()
+    
+    def apply_filters_to_tree(self):
+        """Apply current filters by showing/hiding tree items (fast)"""
+        # Get current filter criteria
+        filtered_games = self.apply_filters(self.current_games)
+        filtered_game_keys = {game.key for game in filtered_games}
+        
+        # Store detached items to avoid memory leaks
+        if not hasattr(self, '_detached_items'):
+            self._detached_items = []
+        
+        # First, reattach any previously detached items
+        for item_id in self._detached_items:
+            try:
+                self.game_tree.reattach(item_id, '', 'end')
+            except tk.TclError:
+                # Item no longer exists, ignore
+                pass
+        self._detached_items.clear()
+        
+        # Now detach items that don't match filters
+        for item_id in list(self.game_tree.get_children()):  # Create list copy since we're modifying
+            game_key = self.game_tree.set(item_id, 'game_key')
+            
+            if game_key not in filtered_game_keys:
+                # Hide this game by detaching it
+                self.game_tree.detach(item_id)
+                self._detached_items.append(item_id)
+        
         self.update_status(f"Showing {len(filtered_games)} games")
+    
+    def apply_visual_filters(self, visible_game_keys: Set[str]):
+        """Apply visual filtering using tags and styling (backup method)"""
+        # This method is kept as a backup but not used in the main flow
+        for item_id in self.game_tree.get_children():
+            game_key = self.game_tree.set(item_id, 'game_key')
+            
+            # Get current tags and remove any existing filter tags
+            current_tags = list(self.game_tree.item(item_id, 'tags'))
+            current_tags = [tag for tag in current_tags if tag != 'filtered_out']
+            
+            if game_key not in visible_game_keys:
+                # This game should be filtered out
+                current_tags.append('filtered_out')
+                self.game_tree.item(item_id, tags=tuple(current_tags))
+                
+                # Also filter out child variants
+                for child_id in self.game_tree.get_children(item_id):
+                    child_tags = list(self.game_tree.item(child_id, 'tags'))
+                    child_tags = [tag for tag in child_tags if tag != 'filtered_out']
+                    child_tags.append('filtered_out')
+                    self.game_tree.item(child_id, tags=tuple(child_tags))
+            else:
+                # This game should be visible
+                self.game_tree.item(item_id, tags=tuple(current_tags))
+                
+                # Also show child variants
+                for child_id in self.game_tree.get_children(item_id):
+                    child_tags = list(self.game_tree.item(child_id, 'tags'))
+                    child_tags = [tag for tag in child_tags if tag != 'filtered_out']
+                    self.game_tree.item(child_id, tags=tuple(child_tags))
+        
+        # Configure the filtered_out tag to make items barely visible
+        self.game_tree.tag_configure('filtered_out', foreground='lightgray', background='')
     
     def apply_filters(self, games: List[Game]) -> List[Game]:
         """Apply current filters to game list"""
         filtered_games = games
         
-        # Apply tag filters
-        if self.active_tag_filters:
+        # Apply tag filters (both checkbox and custom tags)
+        all_active_filters = self.active_tag_filters.union(self.custom_tag_filters) if hasattr(self, 'custom_tag_filters') else self.active_tag_filters
+        if all_active_filters:
             filtered_games = [
                 game for game in filtered_games
-                if self.game_matches_tags(game)
+                if self.game_matches_tags(game, all_active_filters)
             ]
         
         # Apply search filter
@@ -382,50 +744,186 @@ class GameLibraryGUI:
         
         return filtered_games
     
-    def game_matches_tags(self, game: Game) -> bool:
+    def game_matches_tags(self, game: Game, filter_tags: Set[str] = None) -> bool:
         """Check if game matches current tag filters"""
+        if filter_tags is None:
+            # Use all active filters (both checkbox and custom)
+            all_filters = self.active_tag_filters.copy()
+            if hasattr(self, 'custom_tag_filters'):
+                all_filters.update(self.custom_tag_filters)
+            filter_tags = all_filters
+        
+        if not filter_tags:
+            return True
+            
         game_tags = game.get_all_tags()
         # Game must have ALL selected tags (AND logic)
-        return all(tag in game_tags for tag in self.active_tag_filters)
+        return all(any(tag.lower() == game_tag.lower() for game_tag in game_tags) for tag in filter_tags)
     
     def add_game_to_tree(self, game: Game, platform: str):
-        """Add a game to the treeview"""
-        # Check if game is selected
+        """Add a game and its variants to the treeview"""
+        # Get variants for this platform
+        variants = game.get_variants_for_platform(platform)
+        if not variants:
+            return
+        
+        # Check if any variant is selected
         selection = self.state_manager.get_selection(game.key, platform)
         selected_text = "✓" if selection else ""
         
-        # Get variant count
-        variant_count = len(game.get_variants_for_platform(platform))
+        # Check if any variant is installed
+        installed_variants = []
+        for rom in variants:
+            if self.is_rom_installed(rom, platform):
+                installed_variants.append(rom)
         
-        # Get tags for display
-        tags = sorted(game.get_all_tags())
-        tags_text = ", ".join(tags[:5])  # Show first 5 tags
-        if len(tags) > 5:
-            tags_text += "..."
+        installed_text = "✓" if installed_variants else ""
         
-        # Insert item
-        item = self.game_tree.insert(
+        # Get tags for display with grouping
+        tags = game.get_all_tags()
+        if tags:
+            # Use the processor to categorize and format tags
+            categorized_tags = self.library_processor.categorize_tags(tags)
+            tags_text = self.library_processor.format_tag_groups_compact(categorized_tags)
+        else:
+            tags_text = ""
+        
+        # Determine visual styling
+        visual_tags = ['game']
+        if selection:
+            visual_tags.append('selected')
+        if installed_variants:
+            visual_tags.append('installed')
+        if selection and installed_variants:
+            visual_tags.append('selected_installed')
+        
+        # Insert game item
+        game_item = self.game_tree.insert(
             '',
             'end',
             text=game.display_name,
-            values=(selected_text, variant_count, tags_text, game.key),
-            tags=('selected' if selection else 'unselected',)
+            values=(selected_text, installed_text, f"{len(variants)} variants", tags_text, 'game', game.key, ''),
+            tags=tuple(visual_tags)
         )
+        
+        # Add ROM variants as children
+        for rom in variants:
+            # Check if this specific variant is selected
+            variant_selected = ""
+            if selection and selection.selected_rom_variant == rom.create_variant_key():
+                variant_selected = "✓"
+            
+            # Check if this specific variant is installed
+            variant_installed = "✓" if self.is_rom_installed(rom, platform) else ""
+            
+            # Format tags for this variant
+            rom_tags = ", ".join(sorted(rom.tags)) if rom.tags else ""
+            
+            # Determine visual styling for variant
+            variant_visual_tags = ['variant']
+            if variant_selected:
+                variant_visual_tags.append('selected')
+            if variant_installed:
+                variant_visual_tags.append('installed')
+            if variant_selected and variant_installed:
+                variant_visual_tags.append('selected_installed')
+            
+            self.game_tree.insert(
+                game_item,
+                'end',
+                text=rom.filename,
+                values=(variant_selected, variant_installed, rom.size, rom_tags, 'variant', game.key, rom.create_variant_key()),
+                tags=tuple(variant_visual_tags)
+            )
     
-    def on_game_click(self, event):
-        """Handle game tree click"""
+    def is_rom_installed(self, rom: ROM, platform: str) -> bool:
+        """Check if a ROM is installed on the target drive"""
+        target_dir = self.config_manager.get_target_directory(platform)
+        if not target_dir:
+            return False
+        
+        # Use cached existing ROMs for fast lookup if available
+        if self.existing_roms:
+            # Normalize the ROM filename for comparison (same logic as scan_existing_roms)
+            # Remove last extension first, then normalize
+            stem = rom.filename
+            if '.' in stem:
+                stem = '.'.join(stem.split('.')[:-1])  # Remove last extension
+            
+            normalized_name = self.rom_filter._normalize_name(stem)
+            return normalized_name in self.existing_roms
+        
+        # Fallback to direct checking if cache is empty
+        # Create a RomInfo object from ROM for compatibility with RomFilter
+        rom_info = RomInfo(
+            name=rom.filename,
+            url=rom.url,
+            size=rom.size
+        )
+        
+        return self.rom_filter.is_rom_installed(rom_info, target_dir)
+    
+    def check_installed_roms(self):
+        """Scan target directory for installed ROMs and refresh display"""
+        platform = self.current_platform.get()
+        if not platform:
+            messagebox.showwarning("Warning", "Please select a platform first")
+            return
+        
+        target_dir = self.config_manager.get_target_directory(platform)
+        if not target_dir:
+            messagebox.showwarning("Warning", f"No target directory configured for platform: {platform}")
+            return
+        
+        self.update_status("Scanning for installed ROMs...")
+        self.progress_bar.configure(mode='indeterminate')
+        self.progress_bar.start()
+        
+        # Run scan in a separate thread
+        import threading
+        thread = threading.Thread(target=self._check_installed_thread, args=(platform, target_dir))
+        thread.daemon = True
+        thread.start()
+    
+    def _check_installed_thread(self, platform: str, target_dir: Path):
+        """Check installed ROMs in a separate thread"""
+        try:
+            # Scan existing ROMs
+            self.existing_roms = self.rom_filter.scan_existing_roms(target_dir)
+            
+            # Update UI
+            self.root.after(0, lambda: self._check_installed_complete(len(self.existing_roms)))
+            
+        except Exception as e:
+            logger.error(f"Error checking installed ROMs: {e}")
+            self.root.after(0, lambda: self.update_status(f"Error: {e}"))
+        finally:
+            self.root.after(0, lambda: self.progress_bar.stop())
+            self.root.after(0, lambda: self.progress_bar.configure(mode='determinate'))
+    
+    def _check_installed_complete(self, count: int):
+        """Handle installed ROM check completion"""
+        self.update_status(f"Found {count} installed ROMs")
+        self.refresh_game_list()
+    
+    def on_tree_click(self, event):
+        """Handle tree click"""
         region = self.game_tree.identify_region(event.x, event.y)
         if region == "cell":
-            column = self.game_tree.identify_column(event.x, event.y)
+            column = self.game_tree.identify_column(event.x)
             if column == '#1':  # Selected column
-                self.toggle_game_selection(event)
+                self.toggle_selection(event)
     
-    def on_game_double_click(self, event):
-        """Handle game tree double-click"""
-        self.toggle_game_selection(event)
+    def on_tree_double_click(self, event):
+        """Handle tree double-click"""
+        self.toggle_selection(event)
     
-    def toggle_game_selection(self, event):
-        """Toggle game selection"""
+    def on_tree_select(self, event):
+        """Handle tree selection (for expanding/collapsing)"""
+        pass  # We don't need special handling for selection changes
+    
+    def toggle_selection(self, event):
+        """Toggle selection for game or variant"""
         item = self.game_tree.identify_row(event.y)
         if not item:
             return
@@ -434,12 +932,20 @@ class GameLibraryGUI:
         if not platform:
             return
         
-        # Get game key
         try:
+            item_type = self.game_tree.set(item, 'item_type')
             game_key = self.game_tree.set(item, 'game_key')
+            variant_key = self.game_tree.set(item, 'variant_key')
         except:
             return
         
+        if item_type == 'game':
+            self.toggle_game_selection(game_key, platform)
+        elif item_type == 'variant':
+            self.toggle_variant_selection(game_key, platform, variant_key)
+    
+    def toggle_game_selection(self, game_key: str, platform: str):
+        """Toggle selection for a game (auto-select best variant)"""
         # Find game
         game = None
         for g in self.current_games:
@@ -455,9 +961,11 @@ class GameLibraryGUI:
         
         if current_selection:
             # Remove selection
-            if f"{platform}:{game_key}" in self.state_manager.library.selections:
-                del self.state_manager.library.selections[f"{platform}:{game_key}"]
-                self.state_manager.dirty = True
+            selection_key = f"{platform}:{game_key}"
+            if selection_key in self.state_manager.selections:
+                del self.state_manager.selections[selection_key]
+                self.state_manager.selections_dirty = True
+                self.state_manager.save_selections()
         else:
             # Add selection - pick best variant
             variants = game.get_variants_for_platform(platform)
@@ -467,69 +975,30 @@ class GameLibraryGUI:
                     variant_key = best_variant.create_variant_key()
                     self.state_manager.select_rom_variant(game_key, platform, variant_key)
         
-        # Refresh display
-        self.refresh_game_list()
+        # Update only the affected tree items instead of full refresh
+        self.update_game_tree_item(game_key, platform)
     
-    def on_game_select(self, event):
-        """Handle game selection in tree"""
-        selection = self.game_tree.selection()
-        if not selection:
-            self.variant_list.delete(*self.variant_list.get_children())
-            return
+    def toggle_variant_selection(self, game_key: str, platform: str, variant_key: str):
+        """Toggle selection for a specific variant"""
+        current_selection = self.state_manager.get_selection(game_key, platform)
         
-        item = selection[0]
-        game_key = self.game_tree.set(item, 'game_key')
+        if current_selection and current_selection.selected_rom_variant == variant_key:
+            # Deselect this variant
+            selection_key = f"{platform}:{game_key}"
+            if selection_key in self.state_manager.selections:
+                del self.state_manager.selections[selection_key]
+                self.state_manager.selections_dirty = True
+                self.state_manager.save_selections()
+        else:
+            # Select this variant
+            self.state_manager.select_rom_variant(game_key, platform, variant_key)
         
-        # Find game
-        game = None
-        for g in self.current_games:
-            if g.key == game_key:
-                game = g
-                break
-        
-        if game:
-            self.show_game_variants(game)
+        # Update only the affected tree items instead of full refresh
+        self.update_game_tree_item(game_key, platform)
     
-    def show_game_variants(self, game: Game):
-        """Show variants for the selected game"""
-        platform = self.current_platform.get()
-        if not platform:
-            return
-        
-        # Clear existing items
-        self.variant_list.delete(*self.variant_list.get_children())
-        
-        # Get variants for this platform
-        variants = game.get_variants_for_platform(platform)
-        
-        # Add variants to list
-        for rom in variants:
-            tags_text = ", ".join(sorted(rom.tags))
-            self.variant_list.insert(
-                '',
-                'end',
-                values=(rom.filename, rom.size, tags_text)
-            )
-    
-    def on_variant_select(self, event):
-        """Handle variant selection"""
-        selection = self.variant_list.selection()
-        if not selection:
-            return
-        
-        # Get selected variant
-        item = selection[0]
-        filename = self.variant_list.item(item)['values'][0]
-        
-        # Find the game and variant
-        game_selection = self.game_tree.selection()
-        if not game_selection:
-            return
-        
-        game_item = game_selection[0]
-        game_key = self.game_tree.set(game_item, 'game_key')
-        
-        # Find game
+    def update_game_tree_item(self, game_key: str, platform: str):
+        """Update a specific game's tree items without full refresh"""
+        # Find the game in current games
         game = None
         for g in self.current_games:
             if g.key == game_key:
@@ -539,21 +1008,75 @@ class GameLibraryGUI:
         if not game:
             return
         
-        # Find variant
-        platform = self.current_platform.get()
-        variants = game.get_variants_for_platform(platform)
-        
-        selected_rom = None
-        for rom in variants:
-            if rom.filename == filename:
-                selected_rom = rom
+        # Find the game item in the tree
+        game_item = None
+        for item_id in self.game_tree.get_children():
+            if self.game_tree.set(item_id, 'game_key') == game_key:
+                game_item = item_id
                 break
         
-        if selected_rom:
-            # Select this variant
-            variant_key = selected_rom.create_variant_key()
-            self.state_manager.select_rom_variant(game_key, platform, variant_key)
-            self.refresh_game_list()
+        if not game_item:
+            return
+        
+        # Get current selection
+        selection = self.state_manager.get_selection(game_key, platform)
+        selected_text = "✓" if selection else ""
+        
+        # Cache variants lookup and installed check
+        variants = game.get_variants_for_platform(platform)
+        installed_variants = []
+        variant_installed_map = {}  # Cache installed status for each variant
+        
+        for rom in variants:
+            is_installed = self.is_rom_installed(rom, platform)
+            variant_key = rom.create_variant_key()
+            variant_installed_map[variant_key] = is_installed
+            if is_installed:
+                installed_variants.append(rom)
+        
+        installed_text = "✓" if installed_variants else ""
+        
+        # Update game item visual styling
+        visual_tags = ['game']
+        if selection:
+            visual_tags.append('selected')
+        if installed_variants:
+            visual_tags.append('installed')
+        if selection and installed_variants:
+            visual_tags.append('selected_installed')
+        
+        # Update game item values and tags
+        current_values = list(self.game_tree.item(game_item, 'values'))
+        current_values[0] = selected_text  # Selected column
+        current_values[1] = installed_text  # Installed column
+        self.game_tree.item(game_item, values=tuple(current_values), tags=tuple(visual_tags))
+        
+        # Update all child ROM variant items
+        for child_item in self.game_tree.get_children(game_item):
+            child_variant_key = self.game_tree.set(child_item, 'variant_key')
+            
+            # Check if this specific variant is selected
+            variant_selected = ""
+            if selection and selection.selected_rom_variant == child_variant_key:
+                variant_selected = "✓"
+            
+            # Use cached installed status
+            variant_installed = "✓" if variant_installed_map.get(child_variant_key, False) else ""
+            
+            # Update variant visual styling
+            variant_visual_tags = ['variant']
+            if variant_selected:
+                variant_visual_tags.append('selected')
+            if variant_installed:
+                variant_visual_tags.append('installed')
+            if variant_selected and variant_installed:
+                variant_visual_tags.append('selected_installed')
+            
+            # Update variant item values and tags
+            child_values = list(self.game_tree.item(child_item, 'values'))
+            child_values[0] = variant_selected  # Selected column
+            child_values[1] = variant_installed  # Installed column
+            self.game_tree.item(child_item, values=tuple(child_values), tags=tuple(variant_visual_tags))
     
     def scan_roms(self):
         """Scan for ROMs on the selected platform"""
@@ -637,8 +1160,31 @@ class GameLibraryGUI:
             messagebox.showinfo("Info", "No ROMs selected for download")
             return
         
+        # Filter out already installed ROMs
+        roms_to_download = []
+        already_installed = []
+        
+        for rom in selected_roms:
+            if self.is_rom_installed(rom, platform):
+                already_installed.append(rom.filename)
+            else:
+                roms_to_download.append(rom)
+        
+        # Inform user about already installed ROMs
+        if already_installed:
+            skipped_count = len(already_installed)
+            message = f"Skipping {skipped_count} ROM(s) that are already installed:\n\n"
+            message += "\n".join(already_installed[:10])  # Show first 10
+            if len(already_installed) > 10:
+                message += f"\n... and {len(already_installed) - 10} more"
+            messagebox.showinfo("ROMs Already Installed", message)
+        
+        if not roms_to_download:
+            messagebox.showinfo("Nothing to Download", "All selected ROMs are already installed.")
+            return
+        
         # Confirm download
-        if not messagebox.askyesno("Confirm Download", f"Download {len(selected_roms)} ROMs?"):
+        if not messagebox.askyesno("Confirm Download", f"Download {len(roms_to_download)} ROMs?"):
             return
         
         self.downloading = True
@@ -646,7 +1192,7 @@ class GameLibraryGUI:
         
         # Start download in separate thread
         import threading
-        thread = threading.Thread(target=self._download_thread, args=(selected_roms, platform))
+        thread = threading.Thread(target=self._download_thread, args=(roms_to_download, platform))
         thread.daemon = True
         thread.start()
     
@@ -683,6 +1229,8 @@ class GameLibraryGUI:
         """Update download completion in UI"""
         if result.success:
             self.update_status(f"Downloaded: {rom.filename}")
+            # Refresh display to update installed status
+            self.refresh_game_list()
         else:
             self.update_status(f"Failed: {rom.filename} - {result.error_message}")
     
@@ -691,6 +1239,11 @@ class GameLibraryGUI:
         self.progress_bar['value'] = 0
         self.update_status(f"Download complete: {successful}/{total} successful")
         messagebox.showinfo("Download Complete", f"Downloaded {successful} out of {total} ROMs")
+        
+        # Refresh installed ROM cache
+        platform = self.current_platform.get()
+        if platform:
+            self.check_installed_roms()
     
     def clear_selections(self):
         """Clear all selections for current platform"""
@@ -700,7 +1253,58 @@ class GameLibraryGUI:
         
         if messagebox.askyesno("Confirm", "Clear all selections for this platform?"):
             self.state_manager.clear_platform_selections(platform)
-            self.refresh_game_list()
+            # Use targeted updates instead of full refresh
+            self.refresh_selection_display(platform)
+    
+    def refresh_selection_display(self, platform: str):
+        """Refresh only the selection-related display elements (faster than full refresh)"""
+        # Update all visible game items
+        for item_id in self.game_tree.get_children():
+            game_key = self.game_tree.set(item_id, 'game_key')
+            if game_key:
+                self.update_game_tree_item(game_key, platform)
+        
+        # Also update any detached items that might be reattached later
+        if hasattr(self, '_detached_items'):
+            for item_id in self._detached_items:
+                try:
+                    game_key = self.game_tree.set(item_id, 'game_key')
+                    if game_key:
+                        # Update selection display for detached item
+                        current_values = list(self.game_tree.item(item_id, 'values'))
+                        current_values[0] = ""  # Clear selected column
+                        
+                        # Update visual tags
+                        current_tags = list(self.game_tree.item(item_id, 'tags'))
+                        # Remove selection-related tags
+                        current_tags = [tag for tag in current_tags if tag not in ['selected', 'selected_installed']]
+                        if 'installed' in current_tags:
+                            current_tags = ['game', 'installed']
+                        else:
+                            current_tags = ['game']
+                        
+                        self.game_tree.item(item_id, values=tuple(current_values), tags=tuple(current_tags))
+                        
+                        # Update child variants too
+                        for child_id in self.game_tree.get_children(item_id):
+                            child_values = list(self.game_tree.item(child_id, 'values'))
+                            child_values[0] = ""  # Clear selected column
+                            child_tags = list(self.game_tree.item(child_id, 'tags'))
+                            child_tags = [tag for tag in child_tags if tag not in ['selected', 'selected_installed']]
+                            if 'installed' in child_tags:
+                                child_tags = ['variant', 'installed']
+                            else:
+                                child_tags = ['variant']
+                            self.game_tree.item(child_id, values=tuple(child_values), tags=tuple(child_tags))
+                        
+                except tk.TclError:
+                    # Item no longer exists, ignore
+                    pass
+    
+    def cleanup_detached_items(self):
+        """Clean up detached items to prevent memory leaks"""
+        if hasattr(self, '_detached_items'):
+            self._detached_items.clear()
     
     def export_selections(self):
         """Export selections to file"""
@@ -741,10 +1345,14 @@ class GameLibraryGUI:
     def clear_cache(self):
         """Clear application cache"""
         if messagebox.askyesno("Confirm", "Clear all cached data?"):
-            # Clear state manager cache
-            self.state_manager.library.games.clear()
-            self.state_manager.library.tag_registry.clear()
-            self.state_manager.dirty = True
+            # Clear state manager cache for current platform
+            if self.state_manager.platform_library:
+                self.state_manager.platform_library.games.clear()
+                self.state_manager.platform_library.tag_registry.clear()
+                self.state_manager.platform_dirty = True
+            
+            # Clear installed ROM cache
+            self.existing_roms.clear()
             
             self.refresh_game_list()
             self.update_status("Cache cleared")
@@ -763,7 +1371,8 @@ with intelligent organization and filtering.
 
 Features:
 - Dynamic tag-based filtering
-- Game-centric organization
+- Game-centric organization with expandable variants
+- Installation status verification
 - Configurable tool pipelines
 - Persistent selections
 - Multi-platform support
@@ -788,6 +1397,10 @@ Features:
         self.root.destroy()
     
     def __del__(self):
-        """Cleanup on deletion"""
-        if hasattr(self, 'state_manager'):
-            self.state_manager.save_if_dirty()
+        """Cleanup when GUI is destroyed"""
+        try:
+            self.cleanup_detached_items()
+            if hasattr(self, 'state_manager'):
+                self.state_manager.save_if_dirty()
+        except:
+            pass

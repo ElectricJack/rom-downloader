@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir:*)",
+      "Bash(python test:*)",
+      "Bash(python3 test:*)",
+      "Bash(pip3 install:*)",
+      "Bash(python3 -m pip install:*)",
+      "Bash(apt list:*)",
+      "Bash(sudo apt:*)",
+      "Bash(sudo apt install:*)",
+      "Bash(python3:*)",
+      "Bash(python:*)",
+      "Bash(sudo mkdir:*)",
+      "Bash(ls:*)",
+      "Bash(cp:*)",
+      "Bash(touch:*)",
+      "Bash(rm:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git reset:*)",
+      "Bash(git clean:*)",
+      "WebFetch(domain:myrient.erista.me)",
+      "Bash(./chdman.exe --help)",
+      "WebFetch(domain:r-roms.github.io)",
+      "Bash(mount:*)",
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Bash(git checkout:*)",
+      "Bash(timeout 30 python3 run_tests.py basic)",
+      "Bash(timeout:*)"
+    ],
+    "deny": []
+  }
+}

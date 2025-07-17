@@ -1,0 +1,144 @@
+{
+  "version": "3.0",
+  "timestamp": "2025-07-17T15:00:43.377048",
+  "selections": {
+    "GameCube:007_liebesgruesse_aus_moskau": {
+      "game_key": "007_liebesgruesse_aus_moskau",
+      "platform": "GameCube",
+      "selected_rom_variant": "ZIP_Germany",
+      "timestamp": "2025-07-17T14:42:11.011323"
+    },
+    "GameCube:007_nightfire": {
+      "game_key": "007_nightfire",
+      "platform": "GameCube",
+      "selected_rom_variant": "ZIP_USA",
+      "timestamp": "2025-07-17T14:42:13.267663"
+    },
+    "GameCube:1080_silver_storm": {
+      "game_key": "1080_silver_storm",
+      "platform": "GameCube",
+      "selected_rom_variant": "ZIP_Japan",
+      "timestamp": "2025-07-17T14:42:16.707287"
+    },
+    "GameCube:007_from_russia_with_love": {
+      "game_key": "007_from_russia_with_love",
+      "platform": "GameCube",
+      "selected_rom_variant": "ZIP_USA",
+      "timestamp": "2025-07-17T14:45:24.943758"
+    },
+    "GameCube:007_everything_or_nothing": {
+      "game_key": "007_everything_or_nothing",
+      "platform": "GameCube",
+      "selected_rom_variant": "ZIP_USA",
+      "timestamp": "2025-07-17T14:45:27.241583"
+    },
+    "GameCube:animaniacs_the_great_edgar_hunt": {
+      "game_key": "animaniacs_the_great_edgar_hunt",
+      "platform": "GameCube",
+      "selected_rom_variant": "ZIP_USA",
+      "timestamp": "2025-07-17T14:45:31.764019"
+    },
+    "GameCube:army_men_air_combat_the_elite_missions": {
+      "game_key": "army_men_air_combat_the_elite_missions",
+      "platform": "GameCube",
+      "selected_rom_variant": "ZIP_USA",
+      "timestamp": "2025-07-17T14:45:38.557650"
+    },
+    "GameCube:auto_modellista_ustuned": {
+      "game_key": "auto_modellista_ustuned",
+      "platform": "GameCube",
+      "selected_rom_variant": "ZIP_Japan",
+      "timestamp": "2025-07-17T14:45:58.999539"
+    },
+    "GameCube:allstar_baseball_2002": {
+      "game_key": "allstar_baseball_2002",
+      "platform": "GameCube",
+      "selected_rom_variant": "ZIP_USA",
+      "timestamp": "2025-07-17T14:52:19.280551"
+    },
+    "Wii:2_in_1_meine_tierpension_meine_tiersprechstunde": {
+      "game_key": "2_in_1_meine_tierpension_meine_tiersprechstunde",
+      "platform": "Wii",
+      "selected_rom_variant": "ZIP_Germany",
+      "timestamp": "2025-07-17T14:53:42.973818"
+    },
+    "GameCube:18_wheeler_american_pro_trucker": {
+      "game_key": "18_wheeler_american_pro_trucker",
+      "platform": "GameCube",
+      "selected_rom_variant": "ZIP_Beta_USA",
+      "timestamp": "2025-07-17T14:56:30.096537"
+    },
+    "GameCube:2_games_in_1_disneypixar_les_indestructibles_disneypixar_le_monde_de_nemo": {
+      "game_key": "2_games_in_1_disneypixar_les_indestructibles_disneypixar_le_monde_de_nemo",
+      "platform": "GameCube",
+      "selected_rom_variant": "ZIP_Disc 1_France_Les Indestructibles",
+      "timestamp": "2025-07-17T14:56:34.274322"
+    },
+    "GameCube:2_games_in_1_nickelodeon_spongebob_schwammkopf_der_film_nickelodeon_spongebob_schwammkopf_schlacht_um_bikini_bottom": {
+      "game_key": "2_games_in_1_nickelodeon_spongebob_schwammkopf_der_film_nickelodeon_spongebob_schwammkopf_schlacht_um_bikini_bottom",
+      "platform": "GameCube",
+      "selected_rom_variant": "ZIP_Disc 1_Germany",
+      "timestamp": "2025-07-17T14:56:35.869374"
+    },
+    "GameCube:2_games_in_1_nickelodeon_spongebob_schwammkopf_der_film_nickelodeon_tak_2_der_stab_der_traeume": {
+      "game_key": "2_games_in_1_nickelodeon_spongebob_schwammkopf_der_film_nickelodeon_tak_2_der_stab_der_traeume",
+      "platform": "GameCube",
+      "selected_rom_variant": "ZIP_Disc 2_Germany",
+      "timestamp": "2025-07-17T14:56:44.490291"
+    },
+    "GameCube:kyojin_no_doshin": {
+      "game_key": "kyojin_no_doshin",
+      "platform": "GameCube",
+      "selected_rom_variant": "ZIP_Japan",
+      "timestamp": "2025-07-17T14:58:05.447937"
+    },
+    "GameCube:lego_star_wars_ii_the_original_trilogy": {
+      "game_key": "lego_star_wars_ii_the_original_trilogy",
+      "platform": "GameCube",
+      "selected_rom_variant": "ZIP_USA",
+      "timestamp": "2025-07-17T14:58:06.205932"
+    },
+    "GameCube:legend_of_zelda_the_collectors_edition": {
+      "game_key": "legend_of_zelda_the_collectors_edition",
+      "platform": "GameCube",
+      "selected_rom_variant": "ZIP_USA",
+      "timestamp": "2025-07-17T14:58:24.594110"
+    },
+    "GameCube:lara_croft_tomb_raider_legend": {
+      "game_key": "lara_croft_tomb_raider_legend",
+      "platform": "GameCube",
+      "selected_rom_variant": "ZIP_USA",
+      "timestamp": "2025-07-17T14:58:35.201756"
+    },
+    "GameCube:2_games_in_1_disneypixar_die_unglaublichen_disneypixar_findet_nemo": {
+      "game_key": "2_games_in_1_disneypixar_die_unglaublichen_disneypixar_findet_nemo",
+      "platform": "GameCube",
+      "selected_rom_variant": "ZIP_Disc 1_Germany",
+      "timestamp": "2025-07-17T15:00:04.279135"
+    },
+    "GameCube:sonic_adventure_dx_directors_cut": {
+      "game_key": "sonic_adventure_dx_directors_cut",
+      "platform": "GameCube",
+      "selected_rom_variant": "ZIP_De_En_Es_Fr_Ja_USA",
+      "timestamp": "2025-07-17T15:00:39.030679"
+    },
+    "GameCube:phantasy_star_online_episode_i_ii_plus": {
+      "game_key": "phantasy_star_online_episode_i_ii_plus",
+      "platform": "GameCube",
+      "selected_rom_variant": "ZIP_De_En_Es_Fr_Ja_Rev_USA",
+      "timestamp": "2025-07-17T15:00:39.852677"
+    },
+    "GameCube:super_smash_bros_melee": {
+      "game_key": "super_smash_bros_melee",
+      "platform": "GameCube",
+      "selected_rom_variant": "ZIP_En_Ja_Rev_USA",
+      "timestamp": "2025-07-17T15:00:40.686684"
+    },
+    "GameCube:billy_hatcher_and_the_giant_egg": {
+      "game_key": "billy_hatcher_and_the_giant_egg",
+      "platform": "GameCube",
+      "selected_rom_variant": "ZIP_USA",
+      "timestamp": "2025-07-17T15:00:43.362961"
+    }
+  }
+}

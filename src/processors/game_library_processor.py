@@ -125,11 +125,15 @@ class GameLibraryProcessor:
             if tag and tag[0].isdigit():
                 continue
             
-            # Rule 2: Ignore version tags (v1, v2, etc.)
-            if re.match(r'^v\d+', tag.lower()):
+            # Rule 2: Ignore tags that start with "Disk" (case-insensitive)
+            if tag.lower().startswith('disk'):
                 continue
             
-            # Rule 3: Combine tags that start with specific prefixes
+            # Rule 3: Ignore version tags (v1, v2, etc. and Ver. 1, Ver. 2, etc.)
+            if re.match(r'^v\d+', tag.lower()) or re.match(r'^ver\.?\s*\d+', tag.lower()):
+                continue
+            
+            # Rule 4: Combine tags that start with specific prefixes
             tag_lower = tag.lower()
             
             # Demo tags (Demo, Demo Eizou, etc.) -> Demo
@@ -162,6 +166,77 @@ class GameLibraryProcessor:
             cleaned_tags.add(tag)
         
         return cleaned_tags
+    
+    def categorize_tags(self, tags: Set[str]) -> Dict[str, List[str]]:
+        """Categorize tags into groups: language, country, and other"""
+        
+        # Define language tags (ISO 639-1 codes and common language names)
+        language_tags = {
+            'en', 'english', 'ja', 'japanese', 'jp', 'fr', 'french', 'de', 'german',
+            'es', 'spanish', 'it', 'italian', 'pt', 'portuguese', 'ru', 'russian',
+            'ko', 'korean', 'zh', 'chinese', 'nl', 'dutch', 'sv', 'swedish',
+            'da', 'danish', 'no', 'norwegian', 'fi', 'finnish', 'pl', 'polish',
+            'tr', 'turkish', 'ar', 'arabic', 'he', 'hebrew', 'hi', 'hindi',
+            'th', 'thai', 'vi', 'vietnamese', 'id', 'indonesian', 'ms', 'malay',
+            'cs', 'czech', 'hu', 'hungarian', 'ro', 'romanian', 'bg', 'bulgarian',
+            'hr', 'croatian', 'sk', 'slovak', 'sl', 'slovenian', 'et', 'estonian',
+            'lv', 'latvian', 'lt', 'lithuanian', 'mt', 'maltese', 'ga', 'irish'
+        }
+        
+        # Define country/region tags (expanded list)
+        country_tags = {
+            'usa', 'us', 'america', 'europe', 'eu', 'japan', 'jp', 'asia',
+            'australia', 'au', 'canada', 'ca', 'uk', 'britain', 'france', 'fr',
+            'germany', 'de', 'italy', 'it', 'spain', 'es', 'mexico', 'mx',
+            'brazil', 'br', 'china', 'cn', 'korea', 'kr', 'taiwan', 'tw',
+            'turkey', 'tr', 'sweden', 'se', 'russia', 'ru', 'norway', 'no',
+            'finland', 'fi', 'denmark', 'dk', 'poland', 'pl', 'netherlands', 'nl',
+            'belgium', 'be', 'switzerland', 'ch', 'austria', 'at', 'czech', 'cz',
+            'hungary', 'hu', 'romania', 'ro', 'bulgaria', 'bg', 'croatia', 'hr',
+            'greece', 'gr', 'portugal', 'pt', 'ireland', 'ie', 'slovakia', 'sk',
+            'slovenia', 'si', 'estonia', 'ee', 'latvia', 'lv', 'lithuania', 'lt',
+            'india', 'in', 'thailand', 'th', 'vietnam', 'vn', 'indonesia', 'id',
+            'malaysia', 'my', 'singapore', 'sg', 'philippines', 'ph',
+            'world', 'global', 'international', 'ntsc', 'pal', 'secam'
+        }
+        
+        categories = {
+            'language': [],
+            'country': [],
+            'other': []
+        }
+        
+        for tag in sorted(tags):
+            tag_lower = tag.lower()
+            
+            if tag_lower in language_tags:
+                categories['language'].append(tag)
+            elif tag_lower in country_tags:
+                categories['country'].append(tag)
+            else:
+                categories['other'].append(tag)
+        
+        # Remove empty categories
+        return {k: v for k, v in categories.items() if v}
+    
+    def format_tag_groups_compact(self, categorized_tags: Dict[str, List[str]]) -> str:
+        """Format categorized tags into a compact string representation"""
+        parts = []
+        
+        # Format each category without emojis
+        if 'language' in categorized_tags:
+            langs = ', '.join(categorized_tags['language'])
+            parts.append(f"Languages: {langs}")
+        
+        if 'country' in categorized_tags:
+            countries = ', '.join(categorized_tags['country'])
+            parts.append(f"Regions: {countries}")
+        
+        if 'other' in categorized_tags:
+            other = ', '.join(categorized_tags['other'])
+            parts.append(f"Other: {other}")
+        
+        return ' | '.join(parts)
     
     def create_game_key(self, filename: str) -> str:
         """Create consistent game key from filename"""

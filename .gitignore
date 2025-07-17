@@ -80,3 +80,4 @@ state/app_state.json
 *.tmp
 *.temp
 *.bak
+game_library.json

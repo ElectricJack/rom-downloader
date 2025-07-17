@@ -24,6 +24,7 @@ class TransactionalStateManager:
         self.temp_file = self.state_file.with_suffix('.json.tmp')
         
         self.library = GameLibrary()
+        self.app_settings = {}
         self.dirty = False
         self.auto_save = True
         
@@ -110,6 +111,7 @@ class TransactionalStateManager:
         return {
             'version': '2.0',
             'timestamp': datetime.now().isoformat(),
+            'app_settings': getattr(self, 'app_settings', {}),
             'games': {
                 key: self._serialize_game(game) 
                 for key, game in self.library.games.items()
@@ -139,6 +141,9 @@ class TransactionalStateManager:
     def _deserialize_library(self, data: Dict[str, Any]) -> GameLibrary:
         """Deserialize dictionary to GameLibrary"""
         library = GameLibrary()
+        
+        # Load app settings
+        self.app_settings = data.get('app_settings', {})
         
         # Reconstruct games
         games_data = data.get('games', {})
@@ -359,6 +364,26 @@ class TransactionalStateManager:
             self.save_if_dirty()
         else:
             logger.warning(f"Exception occurred in transaction: {exc_val}")
+    
+    # App settings methods
+    def get_app_setting(self, key: str, default: Any = None) -> Any:
+        """Get an application setting"""
+        return self.app_settings.get(key, default)
+    
+    def set_app_setting(self, key: str, value: Any):
+        """Set an application setting"""
+        self.app_settings[key] = value
+        self.dirty = True
+        if self.auto_save:
+            self.save_if_dirty()
+    
+    def get_last_selected_platform(self) -> Optional[str]:
+        """Get the last selected platform"""
+        return self.get_app_setting('last_selected_platform')
+    
+    def set_last_selected_platform(self, platform: str):
+        """Set the last selected platform"""
+        self.set_app_setting('last_selected_platform', platform)
     
     def __del__(self):
         """Cleanup on deletion"""

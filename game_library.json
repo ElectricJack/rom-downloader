@@ -1,6 +1,9 @@
 {
   "version": "2.0",
-  "timestamp": "2025-07-17T11:43:39.893017",
+  "timestamp": "2025-07-17T12:06:28.505992",
+  "app_settings": {
+    "last_selected_platform": "GameCube"
+  },
   "games": {
     "test_rom_2": {
       "key": "test_rom_2",

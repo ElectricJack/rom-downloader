@@ -54,6 +54,7 @@ class GameLibraryGUI:
         
         self.setup_ui()
         self.refresh_platform_list()
+        self.restore_last_state()
         
         logger.info("Game library GUI initialized")
     
@@ -247,10 +248,30 @@ class GameLibraryGUI:
         if platforms and not self.current_platform.get():
             self.current_platform.set(list(platforms.keys())[0])
     
+    def restore_last_state(self):
+        """Restore the last application state"""
+        # Restore last selected platform
+        last_platform = self.state_manager.get_last_selected_platform()
+        if last_platform:
+            available_platforms = self.config_manager.get_platform_display_names()
+            if last_platform in available_platforms:
+                self.current_platform.set(last_platform)
+                logger.info(f"Restored last selected platform: {last_platform}")
+            else:
+                logger.warning(f"Last selected platform '{last_platform}' not available")
+        
+        # Refresh the display to show any existing games and selections
+        platform = self.current_platform.get()
+        if platform:
+            self.update_tag_buttons(platform)
+            self.refresh_game_list()
+    
     def on_platform_change(self, *args):
         """Handle platform selection change"""
         platform = self.current_platform.get()
         if platform:
+            # Save the last selected platform
+            self.state_manager.set_last_selected_platform(platform)
             self.update_tag_buttons(platform)
             self.refresh_game_list()
     
@@ -731,7 +752,15 @@ Features:
     
     def run(self):
         """Start the GUI main loop"""
+        # Handle window close event
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         self.root.mainloop()
+    
+    def on_closing(self):
+        """Handle application closing"""
+        logger.info("Application closing, saving state...")
+        self.state_manager.save_if_dirty()
+        self.root.destroy()
     
     def __del__(self):
         """Cleanup on deletion"""

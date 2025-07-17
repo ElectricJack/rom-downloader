@@ -169,6 +169,15 @@ class MainWindow:
         self.rom_tree.heading('type', text='Type')
         self.rom_tree.heading('installed', text='Installed')
         
+        # Define column mappings for future-proof updates
+        self.COLUMN_MAPPING = {
+            'selected': 0,
+            'region': 1, 
+            'size': 2,
+            'type': 3,
+            'installed': 4
+        }
+        
         self.rom_tree.column('#0', width=350)
         self.rom_tree.column('selected', width=40, anchor='center')
         self.rom_tree.column('region', width=100)
@@ -274,12 +283,14 @@ class MainWindow:
             # Step 2: Scrape ROMs from the platform URL
             url = platform_config['url']
             file_pattern = platform_config.get('file_pattern')
+            folder_mode = platform_config.get('folder_mode', False)
             logger.info(f"Step 2: Starting web scraping from URL: {url}")
             logger.info(f"Using file pattern: {file_pattern}")
+            logger.info(f"Folder mode: {folder_mode}")
             
             self.update_status(f"Fetching ROM list from {url}...")
             scrape_start = time.time()
-            raw_roms = self.web_scraper.scrape_roms(url, file_pattern)
+            raw_roms = self.web_scraper.scrape_roms(url, file_pattern, folder_mode)
             scrape_time = time.time() - scrape_start
             logger.info(f"Web scraping completed in {scrape_time:.2f}s")
             
@@ -523,7 +534,7 @@ class MainWindow:
         current_values = list(self.rom_tree.item(item, 'values'))
         if current_values:
             checkbox_symbol = "☑" if selected else "☐"
-            current_values[0] = checkbox_symbol  # First column is the checkbox
+            current_values[self.COLUMN_MAPPING['selected']] = checkbox_symbol
             self.rom_tree.item(item, values=tuple(current_values))
         
         # Determine the appropriate tag based on selection and installation status
@@ -827,15 +838,15 @@ class MainWindow:
                 size_text = f"{self._format_bytes(current_bytes)}/{self._format_bytes(total_bytes)} ({percentage:.1f}%)"
             else:
                 size_text = self._format_bytes(current_bytes)
-            current_values[1] = size_text  # Size column
+            current_values[self.COLUMN_MAPPING['size']] = size_text
         
         # Update file type column if provided
         if file_type:
-            current_values[2] = file_type.upper().replace('.', '')  # Type column, remove dot and uppercase
+            current_values[self.COLUMN_MAPPING['type']] = file_type.upper().replace('.', '')
         
         # Update status column if provided
         if status:
-            current_values[3] = status  # Installed column
+            current_values[self.COLUMN_MAPPING['installed']] = status
             
             # If the status is "Installed", add the installed tag and update highlighting
             if status == "Installed":

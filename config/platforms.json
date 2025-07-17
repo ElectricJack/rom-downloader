@@ -4,7 +4,7 @@
     "temp_download_path": "./temp_downloads",
     "download_delay_min": 2,
     "download_delay_max": 5,
-    "preferred_regions": ["USA", "US", "En", "English"],
+    "preferred_regions": ["USA", "US", "En", "English", "World"],
     "max_concurrent_downloads": 1
   },
   "platforms": {
@@ -255,6 +255,15 @@
       "file_extensions": [".bin", ".cue", ".chd", ".zip", ".7z"],
       "file_pattern": ".*\\.(bin|cue|chd|zip|7z)$",
       "extract_archives": true
+    },
+    "MAME": {
+      "name": "MAME Arcade",
+      "url": "https://myrient.erista.me/files/Internet%20Archive/lollo_220/MAME_0.225_CHDs_merged/",
+      "target_folder": "mame",
+      "file_extensions": [".chd", ".xml", ".sqlite", ".jpg"],
+      "file_pattern": ".*\\.(chd|xml|sqlite|jpg)$",
+      "extract_archives": false,
+      "folder_mode": true
     }
   }
 }

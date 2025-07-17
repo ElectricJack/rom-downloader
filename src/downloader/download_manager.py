@@ -294,7 +294,7 @@ class DownloadManager:
     def _download_single_rom(self, rom: RomInfo, target_directory: Path,
                            progress_callback: Optional[Callable[[DownloadProgress], None]] = None,
                            platform_name: str = None) -> tuple[bool, str, Optional[str]]:
-        """Download a single ROM file.
+        """Download a single ROM file or folder.
         
         Args:
             rom: ROM to download.
@@ -306,6 +306,11 @@ class DownloadManager:
             Tuple of (success, error_message, final_file_type).
         """
         try:
+            # Handle folder downloads (MAME-style)
+            if rom.is_folder:
+                return self._download_folder(rom, target_directory, progress_callback, platform_name)
+            
+            # Handle regular file downloads
             # Generate filename
             filename = self._sanitize_filename(rom.name)
             temp_file = self.temp_path / filename
@@ -556,6 +561,132 @@ class DownloadManager:
             logger.error(error_msg)
             temp_file.unlink(missing_ok=True)
             return False, error_msg, None
+    
+    def _download_folder(self, rom: RomInfo, target_directory: Path,
+                        progress_callback: Optional[Callable[[DownloadProgress], None]] = None,
+                        platform_name: str = None) -> tuple[bool, str, Optional[str]]:
+        """Download all files in a folder (MAME-style ROM collection).
+        
+        Args:
+            rom: ROM folder to download.
+            target_directory: Final destination directory.
+            progress_callback: Optional callback for progress updates.
+            platform_name: Name of the platform for configuration lookup.
+            
+        Returns:
+            Tuple of (success, error_message, final_file_type).
+        """
+        try:
+            # Create folder name based on ROM name
+            folder_name = self._sanitize_filename(rom.name)
+            target_folder = target_directory / folder_name
+            
+            # Check if folder already exists
+            if target_folder.exists() and any(target_folder.iterdir()):
+                logger.info(f"Folder already exists and contains files, skipping: {target_folder}")
+                return True, "", "FOLDER"
+            
+            # Create target folder
+            target_folder.mkdir(parents=True, exist_ok=True)
+            
+            # Import web scraper to get folder contents
+            from scraper.web_scraper import WebScraper
+            scraper = WebScraper()
+            
+            # Get list of files in the folder
+            folder_files = scraper.get_folder_contents(rom.url)
+            
+            if not folder_files:
+                logger.warning(f"No files found in folder: {rom.url}")
+                return False, "No files found in folder", None
+            
+            logger.info(f"Found {len(folder_files)} files in folder {rom.name}")
+            
+            # Download each file in the folder
+            successful_downloads = 0
+            total_files = len(folder_files)
+            
+            for i, file_rom in enumerate(folder_files):
+                if self.cancelled:
+                    logger.info("Download cancelled by user")
+                    break
+                
+                # Update progress for folder download
+                if progress_callback:
+                    folder_progress = DownloadProgress(
+                        rom, i, total_files,
+                        operation=f"downloading ({i+1}/{total_files})"
+                    )
+                    progress_callback(folder_progress)
+                
+                # Download individual file
+                filename = self._sanitize_filename(file_rom.name)
+                temp_file = self.temp_path / filename
+                final_file = target_folder / filename
+                
+                # Skip if file already exists
+                if final_file.exists():
+                    logger.info(f"File already exists, skipping: {final_file}")
+                    successful_downloads += 1
+                    continue
+                
+                try:
+                    # Download the file
+                    response = self.session.get(file_rom.url, stream=True, timeout=30)
+                    response.raise_for_status()
+                    
+                    # Get total file size
+                    total_size = int(response.headers.get('content-length', 0))
+                    downloaded_size = 0
+                    
+                    with open(temp_file, 'wb') as f:
+                        for chunk in response.iter_content(chunk_size=8192):
+                            if self.cancelled:
+                                temp_file.unlink(missing_ok=True)
+                                return False, "Download cancelled", None
+                            
+                            if chunk:
+                                f.write(chunk)
+                                downloaded_size += len(chunk)
+                    
+                    # Move file to target folder or queue for network copy
+                    dst_str = str(final_file)
+                    if dst_str.startswith('/mnt/') and 'batocera' in dst_str.lower():
+                        # Queue for network copy
+                        copy_item = CopyQueueItem(file_rom, temp_file, final_file, platform_name)
+                        self.copy_queue.put(copy_item)
+                        logger.info(f"Queued for network copy: {final_file}")
+                    else:
+                        # Direct copy to local target
+                        shutil.move(str(temp_file), str(final_file))
+                        logger.info(f"Moved to local target: {final_file}")
+                    
+                    successful_downloads += 1
+                    logger.info(f"Downloaded file {i+1}/{total_files}: {file_rom.name}")
+                    
+                except Exception as file_error:
+                    logger.error(f"Error downloading file {file_rom.name}: {file_error}")
+                    # Continue with other files
+                    temp_file.unlink(missing_ok=True)
+            
+            # Final progress update
+            if progress_callback:
+                final_progress = DownloadProgress(
+                    rom, successful_downloads, total_files,
+                    operation=f"completed ({successful_downloads}/{total_files})"
+                )
+                progress_callback(final_progress)
+            
+            if successful_downloads == 0:
+                return False, "No files were downloaded successfully", None
+            elif successful_downloads < total_files:
+                return True, f"Partially successful: {successful_downloads}/{total_files} files downloaded", "FOLDER"
+            else:
+                return True, "", "FOLDER"
+                
+        except Exception as e:
+            logger.error(f"Error downloading folder {rom.clean_name}: {e}")
+            return False, str(e), None
     
     def _sanitize_filename(self, filename: str) -> str:
         """Sanitize filename for filesystem compatibility.

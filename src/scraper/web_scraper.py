@@ -15,17 +15,22 @@ logger = logging.getLogger(__name__)
 class RomInfo:
     """Represents information about a ROM file."""
     
-    def __init__(self, name: str, url: str, size: str = "", file_type: str = ""):
+    def __init__(self, name: str, url: str, size: str = "", file_type: str = "", is_folder: bool = False):
         self.name = unquote(name)
         self.url = url
         self.size = size
         self.file_type = file_type
+        self.is_folder = is_folder
         self.region = self._extract_region()
         self.clean_name = self._clean_name()
     
     def _extract_region(self) -> str:
         """Extract region information from the ROM name."""
-        # Common region patterns
+        # For folder-based ROMs (like MAME), assign a default region
+        if self.is_folder and self.file_type == "FOLDER":
+            return 'World'  # MAME arcade games are typically region-neutral
+        
+        # Common region patterns for other platforms
         region_patterns = {
             r'\(USA?\)': 'USA',
             r'\(US\)': 'USA', 
@@ -44,6 +49,10 @@ class RomInfo:
     
     def _clean_name(self) -> str:
         """Clean the ROM name for display purposes."""
+        # For MAME folders, return the folder name as-is (it's usually the game identifier)
+        if self.is_folder and self.file_type == "FOLDER":
+            return self.name.strip()
+        
         # Remove file extensions (all supported ROM and archive formats)
         clean = re.sub(r'\.(rvz|zip|7z|iso|bin|cue|chd|gcm|nes|sfc|smc|gba|gbc|gb|nds|n64|z64|v64|vb|pce|a26|a52|a78|cdi|gdi|wux|wud)$', '', self.name, flags=re.IGNORECASE)
         
@@ -74,12 +83,13 @@ class WebScraper:
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         })
     
-    def scrape_roms(self, url: str, file_pattern: str = None) -> List[RomInfo]:
+    def scrape_roms(self, url: str, file_pattern: str = None, folder_mode: bool = False) -> List[RomInfo]:
         """Scrape ROM files from a given URL.
         
         Args:
             url: URL to scrape for ROM files.
             file_pattern: Regex pattern to match file names.
+            folder_mode: If True, treat folders as ROM collections (for MAME-style archives).
             
         Returns:
             List of RomInfo objects representing found ROMs.
@@ -132,9 +142,33 @@ class WebScraper:
                 if not file_name:
                     file_name = link.get_text().strip()
                 
-                # Skip if it's a directory (ends with /)
+                # Handle directories differently based on mode
                 if href.endswith('/'):
-                    continue
+                    if folder_mode:
+                        # In folder mode, treat directories as ROMs
+                        folder_name = href.rstrip('/')
+                        
+                        # Skip parent directory links and system folders
+                        if folder_name in ['..', '.', 'Parent Directory'] or folder_name.startswith('.'):
+                            continue
+                        
+                        matched_count += 1
+                        
+                        rom_info = RomInfo(
+                            name=folder_name,
+                            url=full_url,
+                            size="Folder",
+                            file_type="FOLDER",
+                            is_folder=True
+                        )
+                        
+                        roms.append(rom_info)
+                        if len(roms) <= 10:  # Log first 10 ROMs found
+                            logger.info(f"Found ROM folder: {rom_info.clean_name}")
+                        continue
+                    else:
+                        # In normal mode, skip directories
+                        continue
                 
                 # Apply file pattern filter if provided
                 if file_pattern:
@@ -216,3 +250,65 @@ class WebScraper:
             logger.error(f"Error getting file info for {url}: {e}")
         
         return None
+    
+    def get_folder_contents(self, folder_url: str) -> List[RomInfo]:
+        """Get all files within a folder for MAME-style ROM collections.
+        
+        Args:
+            folder_url: URL to the folder containing ROM files.
+            
+        Returns:
+            List of RomInfo objects representing files in the folder.
+        """
+        try:
+            logger.info(f"Getting folder contents from: {folder_url}")
+            
+            response = self.session.get(folder_url, timeout=30)
+            response.raise_for_status()
+            
+            soup = BeautifulSoup(response.content, 'html.parser')
+            files = []
+            
+            file_links = soup.find_all('a', href=True)
+            
+            for link in file_links:
+                href = link.get('href')
+                if not href or href.startswith('../') or href == '/' or href.endswith('/'):
+                    continue
+                
+                # Get the full URL
+                full_url = urljoin(folder_url, href)
+                
+                # Extract file name from href or link text
+                file_name = href.strip('/')
+                if not file_name:
+                    file_name = link.get_text().strip()
+                
+                # Extract file size if available
+                size_text = ""
+                parent = link.parent
+                if parent:
+                    size_match = re.search(r'(\d+(?:\.\d+)?\s*[KMGT]?B)', parent.get_text())
+                    if size_match:
+                        size_text = size_match.group(1)
+                
+                # Determine file type
+                file_type = ""
+                if '.' in file_name:
+                    file_type = file_name.split('.')[-1].upper()
+                
+                rom_info = RomInfo(
+                    name=file_name,
+                    url=full_url,
+                    size=size_text,
+                    file_type=file_type
+                )
+                
+                files.append(rom_info)
+            
+            logger.info(f"Found {len(files)} files in folder")
+            return files
+            
+        except Exception as e:
+            logger.error(f"Error getting folder contents from {folder_url}: {e}")
+            return []

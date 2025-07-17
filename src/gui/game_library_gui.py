@@ -54,6 +54,7 @@ class GameLibraryGUI:
         self.current_games = []
         self.downloading = False
         self.existing_roms = set()  # Cache of installed ROMs
+        self._gui_active = True  # Flag to track if GUI is still active
         
         self.setup_ui()
         self.refresh_platform_list()
@@ -707,6 +708,8 @@ class GameLibraryGUI:
         # Tools menu
         tools_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Tools", menu=tools_menu)
+        tools_menu.add_command(label="Diagnose ROM Detection", command=self.diagnose_installation_detection)
+        tools_menu.add_separator()
         tools_menu.add_command(label="Clear Cache", command=self.clear_cache)
         tools_menu.add_command(label="Cleanup Temp Files", command=self.cleanup_temp_files)
         
@@ -725,6 +728,10 @@ class GameLibraryGUI:
     
     def restore_last_state(self):
         """Restore the last application state"""
+        import time
+        start_time = time.time()
+        logger.info("=== restore_last_state() started ===")
+        
         # Restore last selected platform
         last_platform = self.state_manager.get_last_selected_platform()
         if last_platform:
@@ -738,21 +745,51 @@ class GameLibraryGUI:
         # Refresh the display to show any existing games and selections
         platform = self.current_platform.get()
         if platform:
+            tag_start = time.time()
             self.update_tag_buttons(platform)
+            tag_time = time.time() - tag_start
+            logger.info(f"update_tag_buttons() took {tag_time:.2f}s")
+            
+            refresh_start = time.time()
             self.refresh_game_list()
+            refresh_time = time.time() - refresh_start
+            logger.info(f"refresh_game_list() took {refresh_time:.2f}s")
+        
+        total_time = time.time() - start_time
+        logger.info(f"=== restore_last_state() completed in {total_time:.2f}s ===")
     
     def on_platform_change(self, *args):
         """Handle platform selection change"""
+        import time
+        start_time = time.time()
+        
         platform = self.current_platform.get()
         if platform:
+            logger.info(f"=== on_platform_change() to {platform} ===")
+            
             # Save the last selected platform
+            save_start = time.time()
             self.state_manager.set_last_selected_platform(platform)
+            save_time = time.time() - save_start
+            logger.info(f"set_last_selected_platform() took {save_time:.2f}s")
+            
+            tag_start = time.time()
             self.update_tag_buttons(platform)
+            tag_time = time.time() - tag_start
+            logger.info(f"update_tag_buttons() took {tag_time:.2f}s")
+            
             # Clear existing ROM cache when platform changes
             self.existing_roms.clear()
             # Force a full rebuild since platform changed
             self.current_games = []  # This will trigger a rebuild
+            
+            refresh_start = time.time()
             self.refresh_game_list()
+            refresh_time = time.time() - refresh_start
+            logger.info(f"refresh_game_list() took {refresh_time:.2f}s")
+            
+            total_time = time.time() - start_time
+            logger.info(f"=== on_platform_change() completed in {total_time:.2f}s ===")
     
     def update_tag_buttons(self, platform: str):
         """Update tag filter buttons for the selected platform"""
@@ -867,45 +904,92 @@ class GameLibraryGUI:
     
     def refresh_game_list(self):
         """Refresh the game list display"""
+        import time
+        start_time = time.time()
+        
         platform = self.current_platform.get()
         if not platform:
             return
 
+        logger.info(f"=== refresh_game_list() started for {platform} ===")
+
         # Get games for platform
+        games_start = time.time()
         games = self.state_manager.get_games_for_platform(platform)
+        games_time = time.time() - games_start
+        logger.info(f"get_games_for_platform() took {games_time:.2f}s, got {len(games)} games")
         
         # Check if we need to rebuild the tree (data has changed)
         if self.current_games != games:
+            rebuild_start = time.time()
             self.rebuild_game_tree(games, platform)
+            rebuild_time = time.time() - rebuild_start
+            logger.info(f"rebuild_game_tree() took {rebuild_time:.2f}s")
         else:
             # Just apply filters to existing tree (much faster)
+            filter_start = time.time()
             self.apply_filters_to_tree()
+            filter_time = time.time() - filter_start
+            logger.info(f"apply_filters_to_tree() took {filter_time:.2f}s")
+        
+        total_time = time.time() - start_time
+        logger.info(f"=== refresh_game_list() completed in {total_time:.2f}s ===")
+
     
     def rebuild_game_tree(self, games: List[Game], platform: str):
         """Rebuild the entire game tree (only when data changes)"""
+        import time
+        start_time = time.time()
+        
+        logger.info(f"=== rebuild_game_tree() started with {len(games)} games ===")
+        
         # Clear existing items
+        clear_start = time.time()
         self.game_tree.delete(*self.game_tree.get_children())
+        clear_time = time.time() - clear_start
+        logger.info(f"Tree clearing took {clear_time:.2f}s")
         
         # Auto-populate existing ROMs cache if empty and target directory exists
+        target_dir = self.config_manager.get_target_directory(platform)
+        logger.info(f"Target directory for platform {platform}: {target_dir}")
+        
+        cache_start = time.time()
         if not self.existing_roms:
-            target_dir = self.config_manager.get_target_directory(platform)
-            if target_dir and target_dir.exists():
-                try:
-                    self.update_status("Checking for installed ROMs...")
-                    self.existing_roms = self.rom_filter.scan_existing_roms(target_dir)
-                    logger.info(f"Auto-populated existing ROMs cache: {len(self.existing_roms)} ROMs found")
-                except Exception as e:
-                    logger.warning(f"Failed to scan existing ROMs: {e}")
-                    self.existing_roms = set()
+            logger.info("ROM cache is empty, will populate asynchronously...")
+            if target_dir:
+                logger.info(f"Target directory configured: {target_dir}")
+                # Start async ROM scanning - don't block the UI
+                import threading
+                thread = threading.Thread(target=self._async_populate_rom_cache, args=(platform, target_dir))
+                thread.daemon = True
+                thread.start()
+            else:
+                logger.warning(f"No target directory configured for platform: {platform}")
+                self.existing_roms = set()
+        else:
+            logger.info(f"ROM cache already populated with {len(self.existing_roms)} entries")
+        cache_time = time.time() - cache_start
+        logger.info(f"ROM cache setup took {cache_time:.2f}s")
 
         # Populate tree with all games (no filtering during build)
-        for game in games:
+        populate_start = time.time()
+        for i, game in enumerate(games):
+            if i % 200 == 0 and i > 0:
+                logger.info(f"Added {i}/{len(games)} games to tree...")
             self.add_game_to_tree(game, platform)
+        populate_time = time.time() - populate_start
+        logger.info(f"Tree population took {populate_time:.2f}s for {len(games)} games")
 
         self.current_games = games
         
         # Apply filters to the newly built tree
+        filter_start = time.time()
         self.apply_filters_to_tree()
+        filter_time = time.time() - filter_start
+        logger.info(f"Filter application took {filter_time:.2f}s")
+        
+        total_time = time.time() - start_time
+        logger.info(f"=== rebuild_game_tree() completed in {total_time:.2f}s ===")
     
     def apply_filters_to_tree(self):
         """Apply current filters by showing/hiding tree items (fast)"""
@@ -1020,13 +1104,9 @@ class GameLibraryGUI:
         selection = self.state_manager.get_selection(game.key, platform)
         queued_text = "✓" if selection else ""
         
-        # Check if any variant is installed
-        installed_variants = []
-        for rom in variants:
-            if self.is_rom_installed(rom, platform):
-                installed_variants.append(rom)
-        
-        installed_text = "✓" if installed_variants else ""
+        # Skip installation checking during initial tree population to avoid blocking
+        # Installation status will be updated asynchronously after ROM cache is populated
+        installed_text = ""
         
         # Get tags for display with grouping
         tags = game.get_all_tags()
@@ -1037,14 +1117,10 @@ class GameLibraryGUI:
         else:
             tags_text = ""
         
-        # Determine visual styling
+        # Determine visual styling (installation status will be updated later)
         visual_tags = ['game']
         if selection:
             visual_tags.append('queued')
-        if installed_variants:
-            visual_tags.append('installed')
-        if selection and installed_variants:
-            visual_tags.append('queued_installed')
         
         # Insert game item
         game_item = self.game_tree.insert(
@@ -1062,20 +1138,16 @@ class GameLibraryGUI:
             if selection and selection.selected_rom_variant == rom.create_variant_key():
                 variant_queued = "✓"
             
-            # Check if this specific variant is installed
-            variant_installed = "✓" if self.is_rom_installed(rom, platform) else ""
+            # Skip installation checking during initial tree population to avoid blocking
+            variant_installed = ""
             
             # Format tags for this variant
             rom_tags = ", ".join(sorted(rom.tags)) if rom.tags else ""
             
-            # Determine visual styling for variant
+            # Determine visual styling for variant (installation status will be updated later)
             variant_visual_tags = ['variant']
             if variant_queued:
                 variant_visual_tags.append('queued')
-            if variant_installed:
-                variant_visual_tags.append('installed')
-            if variant_queued and variant_installed:
-                variant_visual_tags.append('queued_installed')
             
             self.game_tree.insert(
                 game_item,
@@ -1089,10 +1161,25 @@ class GameLibraryGUI:
         """Check if a ROM is installed on the target drive"""
         target_dir = self.config_manager.get_target_directory(platform)
         if not target_dir:
+            logger.debug(f"No target directory configured for platform: {platform}")
+            return False
+        
+        logger.debug(f"Checking ROM installation for {rom.filename} in {target_dir}")
+        
+        # Check if target directory exists
+        try:
+            dir_exists = target_dir.exists()
+            logger.debug(f"Target directory exists: {dir_exists}")
+            if not dir_exists:
+                logger.warning(f"Target directory does not exist: {target_dir}")
+                return False
+        except Exception as e:
+            logger.error(f"Error checking target directory existence: {e}")
             return False
         
         # Use cached existing ROMs for fast lookup if available
         if self.existing_roms:
+            logger.debug(f"Using ROM cache with {len(self.existing_roms)} entries")
             # Normalize the ROM filename for comparison (same logic as scan_existing_roms)
             # Remove last extension first, then normalize
             stem = rom.filename
@@ -1100,7 +1187,12 @@ class GameLibraryGUI:
                 stem = '.'.join(stem.split('.')[:-1])  # Remove last extension
             
             normalized_name = self.rom_filter._normalize_name(stem)
-            return normalized_name in self.existing_roms
+            logger.debug(f"Normalized ROM name: '{normalized_name}'")
+            is_installed = normalized_name in self.existing_roms
+            logger.debug(f"ROM installed check result: {is_installed}")
+            return is_installed
+        else:
+            logger.debug("ROM cache is empty, using direct file checking")
         
         # Fallback to direct checking if cache is empty
         # Create a RomInfo object from ROM for compatibility with RomFilter
@@ -1110,7 +1202,9 @@ class GameLibraryGUI:
             size=rom.size
         )
         
-        return self.rom_filter.is_rom_installed(rom_info, target_dir)
+        result = self.rom_filter.is_rom_installed(rom_info, target_dir)
+        logger.debug(f"Direct file check result: {result}")
+        return result
     
     def check_installed_roms(self):
         """Scan target directory for installed ROMs and refresh display"""
@@ -1118,37 +1212,303 @@ class GameLibraryGUI:
         if not platform:
             messagebox.showwarning("Warning", "Please select a platform first")
             return
-        
+
         target_dir = self.config_manager.get_target_directory(platform)
         if not target_dir:
             messagebox.showwarning("Warning", f"No target directory configured for platform: {platform}")
             return
-        
+
         self.update_status("Scanning for installed ROMs...")
         self.progress_bar.configure(mode='indeterminate')
         self.progress_bar.start()
-        
+
         # Run scan in a separate thread
         import threading
         thread = threading.Thread(target=self._check_installed_thread, args=(platform, target_dir))
         thread.daemon = True
         thread.start()
     
+    def diagnose_installation_detection(self):
+        """Diagnose why installed ROM detection might not be working"""
+        platform = self.current_platform.get()
+        if not platform:
+            messagebox.showwarning("Warning", "Please select a platform first")
+            return
+        
+        logger.info("=" * 50)
+        logger.info("DIAGNOSTIC: ROM Installation Detection")
+        logger.info("=" * 50)
+        
+        # Check target directory configuration
+        target_dir = self.config_manager.get_target_directory(platform)
+        logger.info(f"Platform: {platform}")
+        logger.info(f"Configured target directory: {target_dir}")
+        
+        if not target_dir:
+            logger.error("No target directory configured!")
+            messagebox.showerror("Diagnostic Result", f"No target directory configured for platform: {platform}")
+            return
+        
+        # Check if directory exists
+        try:
+            dir_exists = target_dir.exists()
+            logger.info(f"Target directory exists: {dir_exists}")
+            
+            if not dir_exists:
+                logger.error(f"Target directory does not exist: {target_dir}")
+                messagebox.showerror("Diagnostic Result", 
+                    f"Target directory does not exist:\n{target_dir}\n\n"
+                    f"Please either:\n"
+                    f"1. Create this directory and put some ROMs in it, or\n"
+                    f"2. Update your configuration to point to the correct ROM directory")
+                return
+        except Exception as e:
+            logger.error(f"Error checking directory: {e}")
+            messagebox.showerror("Diagnostic Result", f"Error accessing target directory: {e}")
+            return
+        
+        # Check directory permissions and contents
+        try:
+            logger.info("Checking directory accessibility...")
+            entries = list(target_dir.iterdir())
+            logger.info(f"Directory is accessible, contains {len(entries)} entries")
+            
+            # Count ROM files
+            rom_extensions = {'.rvz', '.zip', '.7z', '.iso', '.gcm', '.bin', '.cue', '.chd'}
+            rom_files = [e for e in entries if e.suffix.lower() in rom_extensions and not e.name.startswith('.')]
+            logger.info(f"Found {len(rom_files)} potential ROM files")
+            
+            if rom_files:
+                logger.info("Sample ROM files found:")
+                for rom_file in rom_files[:5]:  # Show first 5
+                    logger.info(f"  - {rom_file.name}")
+                    
+                # Test normalization on first ROM
+                if rom_files:
+                    test_rom = rom_files[0]
+                    stem = test_rom.name
+                    if '.' in stem:
+                        stem = '.'.join(stem.split('.')[:-1])
+                    normalized = self.rom_filter._normalize_name(stem)
+                    logger.info(f"Test normalization: '{test_rom.name}' -> '{normalized}'")
+            
+            # Check cache status
+            logger.info(f"Current ROM cache size: {len(self.existing_roms)}")
+            if self.existing_roms:
+                sample_cache = list(self.existing_roms)[:5]
+                logger.info(f"Sample cache entries: {sample_cache}")
+            
+            messagebox.showinfo("Diagnostic Result",
+                f"Directory check completed!\n\n"
+                f"Target directory: {target_dir}\n"
+                f"Directory exists: {dir_exists}\n"
+                f"Total entries: {len(entries)}\n"
+                f"ROM files found: {len(rom_files)}\n"
+                f"Cache entries: {len(self.existing_roms)}\n\n"
+                f"Check the console output for detailed logging.")
+                
+        except PermissionError as e:
+            logger.error(f"Permission denied: {e}")
+            messagebox.showerror("Diagnostic Result", f"Permission denied accessing directory: {e}")
+        except Exception as e:
+            logger.error(f"Error scanning directory: {e}", exc_info=True)
+            messagebox.showerror("Diagnostic Result", f"Error scanning directory: {e}")
+        
+        logger.info("=" * 50)
+    
     def _check_installed_thread(self, platform: str, target_dir: Path):
         """Check installed ROMs in a separate thread"""
         try:
+            # Check if GUI is still active
+            if not self._gui_active:
+                return
+                
             # Scan existing ROMs
             self.existing_roms = self.rom_filter.scan_existing_roms(target_dir)
             
-            # Update UI
-            self.root.after(0, lambda: self._check_installed_complete(len(self.existing_roms)))
+            # Update UI (if GUI still active)
+            self._safe_gui_update(lambda: self._check_installed_complete(len(self.existing_roms)))
             
         except Exception as e:
             logger.error(f"Error checking installed ROMs: {e}")
-            self.root.after(0, lambda: self.update_status(f"Error: {e}"))
+            self._safe_gui_update(lambda: self.update_status(f"Error: {e}"))
         finally:
-            self.root.after(0, lambda: self.progress_bar.stop())
-            self.root.after(0, lambda: self.progress_bar.configure(mode='determinate'))
+            self._safe_gui_update(lambda: self.progress_bar.stop())
+            self._safe_gui_update(lambda: self.progress_bar.configure(mode='determinate'))
+
+    def _async_populate_rom_cache(self, platform: str, target_dir: Path):
+        """Populate ROM cache asynchronously without blocking the UI"""
+        try:
+            logger.info(f"Starting async ROM cache population for {platform}")
+            
+            # Check if GUI is still active
+            if not self._gui_active:
+                logger.info("GUI no longer active, cancelling ROM cache population")
+                return
+            
+            # Check if directory exists
+            dir_exists = target_dir.exists()
+            logger.info(f"Target directory exists: {dir_exists}")
+            
+            if dir_exists:
+                self._safe_gui_update(lambda: self.update_status("Checking for installed ROMs..."))
+                logger.info("Starting ROM cache population...")
+                
+                # Scan existing ROMs
+                existing_roms = self.rom_filter.scan_existing_roms(target_dir)
+                
+                # Update cache and UI on main thread (if GUI still active)
+                self._safe_gui_update(lambda: self._update_rom_cache(existing_roms, platform))
+                
+            else:
+                logger.warning(f"Target directory does not exist: {target_dir}")
+                self._safe_gui_update(lambda: self.update_status("Ready"))
+                
+        except Exception as e:
+            logger.error(f"Failed to scan existing ROMs: {e}", exc_info=True)
+            self._safe_gui_update(lambda: self.update_status("Ready"))
+
+    def _safe_gui_update(self, callback):
+        """Safely update GUI from background thread, handling main loop errors"""
+        if not self._gui_active:
+            return
+        
+        try:
+            self.root.after(0, callback)
+        except RuntimeError as e:
+            if "main thread is not in main loop" in str(e):
+                logger.debug("GUI main loop no longer active, skipping update")
+                self._gui_active = False  # Update flag to prevent future attempts
+            else:
+                logger.error(f"Unexpected GUI update error: {e}")
+        except Exception as e:
+            logger.error(f"Error updating GUI: {e}")
+
+    def _update_rom_cache(self, existing_roms: set, platform: str):
+        """Update ROM cache and refresh display (called on main thread)"""
+        self.existing_roms = existing_roms
+        logger.info(f"Updated ROM cache: {len(self.existing_roms)} ROMs found")
+        
+        # Log first few entries for debugging
+        if self.existing_roms:
+            sample_roms = list(self.existing_roms)[:5]
+            logger.info(f"Sample cached ROM names: {sample_roms}")
+        
+        # Update existing tree items without full refresh to avoid recursion
+        self._update_existing_tree_items_installation_status()
+        self.update_status("Ready")
+    
+    def _update_existing_tree_items_installation_status(self):
+        """Update installation status of existing tree items without full refresh"""
+        if not self.current_games:
+            return
+        
+        platform = self.current_platform.get()
+        if not platform:
+            return
+        
+        # Update all game items in the tree
+        for item_id in self.game_tree.get_children():
+            try:
+                game_key = self.game_tree.set(item_id, 'game_key')
+                if game_key:
+                    # Find the game object
+                    game = None
+                    for g in self.current_games:
+                        if g.key == game_key:
+                            game = g
+                            break
+                    
+                    if game:
+                        # Update the game item
+                        self._update_game_item_installation_status(item_id, game, platform)
+                        
+                        # Update child variant items
+                        for child_item in self.game_tree.get_children(item_id):
+                            self._update_variant_item_installation_status(child_item, game, platform)
+            except Exception as e:
+                logger.error(f"Error updating tree item {item_id}: {e}")
+    
+    def _update_game_item_installation_status(self, item_id: str, game, platform: str):
+        """Update installation status for a game item"""
+        try:
+            # Check if any variants are installed
+            variants = game.get_variants_for_platform(platform)
+            installed_variants = []
+            for rom in variants:
+                if self.is_rom_installed(rom, platform):
+                    installed_variants.append(rom)
+            
+            # Update installed column
+            current_values = list(self.game_tree.item(item_id, 'values'))
+            current_values[1] = "✓" if installed_variants else ""  # Installed column
+            
+            # Update visual tags
+            current_tags = list(self.game_tree.item(item_id, 'tags'))
+            if installed_variants:
+                if 'installed' not in current_tags:
+                    current_tags.append('installed')
+            else:
+                if 'installed' in current_tags:
+                    current_tags.remove('installed')
+            
+            # Check for queued_installed combination
+            if "queued" in current_tags and installed_variants:
+                if 'queued_installed' not in current_tags:
+                    current_tags.append('queued_installed')
+            else:
+                if 'queued_installed' in current_tags:
+                    current_tags.remove('queued_installed')
+            
+            self.game_tree.item(item_id, values=tuple(current_values), tags=tuple(current_tags))
+        except Exception as e:
+            logger.error(f"Error updating game item installation status: {e}")
+    
+    def _update_variant_item_installation_status(self, item_id: str, game, platform: str):
+        """Update installation status for a variant item"""
+        try:
+            variant_key = self.game_tree.set(item_id, 'variant_key')
+            if not variant_key:
+                return
+            
+            # Find the ROM variant
+            variants = game.get_variants_for_platform(platform)
+            rom_variant = None
+            for rom in variants:
+                if rom.create_variant_key() == variant_key:
+                    rom_variant = rom
+                    break
+            
+            if not rom_variant:
+                return
+            
+            # Check if this variant is installed
+            is_installed = self.is_rom_installed(rom_variant, platform)
+            
+            # Update installed column
+            current_values = list(self.game_tree.item(item_id, 'values'))
+            current_values[1] = "✓" if is_installed else ""  # Installed column
+            
+            # Update visual tags
+            current_tags = list(self.game_tree.item(item_id, 'tags'))
+            if is_installed:
+                if 'installed' not in current_tags:
+                    current_tags.append('installed')
+            else:
+                if 'installed' in current_tags:
+                    current_tags.remove('installed')
+            
+            # Check for queued_installed combination
+            if "queued" in current_tags and is_installed:
+                if 'queued_installed' not in current_tags:
+                    current_tags.append('queued_installed')
+            else:
+                if 'queued_installed' in current_tags:
+                    current_tags.remove('queued_installed')
+            
+            self.game_tree.item(item_id, values=tuple(current_values), tags=tuple(current_tags))
+        except Exception as e:
+            logger.error(f"Error updating variant item installation status: {e}")
     
     def _check_installed_complete(self, count: int):
         """Handle installed ROM check completion"""
@@ -1271,10 +1631,14 @@ class GameLibraryGUI:
     def _scan_roms_thread(self, platform: str):
         """Scan ROMs in a separate thread"""
         try:
+            # Check if GUI is still active
+            if not self._gui_active:
+                return
+                
             # Get platform configuration
             platform_config = self.config_manager.get_platform_config(platform)
             if not platform_config:
-                self.root.after(0, lambda: self.update_status("Platform configuration not found"))
+                self._safe_gui_update(lambda: self.update_status("Platform configuration not found"))
                 return
             
             # Scrape ROMs
@@ -1284,7 +1648,7 @@ class GameLibraryGUI:
             roms = self.web_scraper.scrape_roms(url, file_pattern)
             
             if not roms:
-                self.root.after(0, lambda: self.update_status("No ROMs found"))
+                self._safe_gui_update(lambda: self.update_status("No ROMs found"))
                 return
             
             # Process into library
@@ -1296,14 +1660,14 @@ class GameLibraryGUI:
                     self.state_manager.add_game(game)
             
             # Update UI
-            self.root.after(0, lambda: self._scan_complete(len(library.games)))
+            self._safe_gui_update(lambda: self._scan_complete(len(library.games)))
             
         except Exception as e:
             logger.error(f"Error scanning ROMs: {e}")
-            self.root.after(0, lambda: self.update_status(f"Error: {e}"))
+            self._safe_gui_update(lambda: self.update_status(f"Error: {e}"))
         finally:
-            self.root.after(0, lambda: self.progress_bar.stop())
-            self.root.after(0, lambda: self.progress_bar.configure(mode='determinate'))
+            self._safe_gui_update(lambda: self.progress_bar.stop())
+            self._safe_gui_update(lambda: self.progress_bar.configure(mode='determinate'))
     
     def _scan_complete(self, count: int):
         """Handle scan completion"""
@@ -1368,11 +1732,15 @@ class GameLibraryGUI:
     def _download_thread(self, roms: List[ROM], platform: str):
         """Download ROMs in a separate thread"""
         try:
+            # Check if GUI is still active
+            if not self._gui_active:
+                return
+                
             def progress_callback(rom: ROM, progress: DownloadProgress):
-                self.root.after(0, lambda: self._update_download_progress(rom, progress))
+                self._safe_gui_update(lambda: self._update_download_progress(rom, progress))
             
             def completion_callback(rom: ROM, result: DownloadResult):
-                self.root.after(0, lambda: self._update_download_completion(rom, result))
+                self._safe_gui_update(lambda: self._update_download_completion(rom, result))
             
             # Start download
             results = self.download_manager.download_roms(
@@ -1381,11 +1749,11 @@ class GameLibraryGUI:
             
             # Show results
             successful = sum(1 for r in results if r.success)
-            self.root.after(0, lambda: self._download_complete(successful, len(results)))
+            self._safe_gui_update(lambda: self._download_complete(successful, len(results)))
             
         except Exception as e:
             logger.error(f"Error during download: {e}")
-            self.root.after(0, lambda: self.update_status(f"Download error: {e}"))
+            self._safe_gui_update(lambda: self.update_status(f"Download error: {e}"))
         finally:
             self.downloading = False
     
@@ -1568,6 +1936,7 @@ Usage:
     def on_closing(self):
         """Handle application closing"""
         logger.info("Application closing, saving state...")
+        self._gui_active = False  # Stop background threads from updating GUI
         self.state_manager.save_if_dirty()
         self.root.destroy()
     

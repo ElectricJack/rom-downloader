@@ -153,7 +153,7 @@ class GameLibraryGUI:
         game_frame.grid_columnconfigure(0, weight=1)
         
         # Create treeview
-        columns = ('selected', 'variants', 'tags')
+        columns = ('selected', 'variants', 'tags', 'game_key')
         self.game_tree = ttk.Treeview(game_frame, columns=columns, show='tree headings')
         
         # Configure columns
@@ -166,6 +166,7 @@ class GameLibraryGUI:
         self.game_tree.column('selected', width=80, anchor='center')
         self.game_tree.column('variants', width=80, anchor='center')
         self.game_tree.column('tags', width=200)
+        self.game_tree.column('game_key', width=0, stretch=False)  # Hidden column for data storage
         
         # Scrollbars
         tree_scroll_y = ttk.Scrollbar(game_frame, orient=tk.VERTICAL, command=self.game_tree.yview)
@@ -407,12 +408,9 @@ class GameLibraryGUI:
             '',
             'end',
             text=game.display_name,
-            values=(selected_text, variant_count, tags_text),
+            values=(selected_text, variant_count, tags_text, game.key),
             tags=('selected' if selection else 'unselected',)
         )
-        
-        # Store game reference
-        self.game_tree.set(item, 'game_key', game.key)
     
     def on_game_click(self, event):
         """Handle game tree click"""

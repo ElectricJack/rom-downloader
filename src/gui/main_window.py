@@ -144,6 +144,9 @@ class MainWindow:
         self.deselect_all_button = ttk.Button(control_frame, text="Deselect All", command=self.deselect_all_roms)
         self.deselect_all_button.pack(side=tk.LEFT, padx=(0, 10))
         
+        self.select_not_installed_button = ttk.Button(control_frame, text="Select Not Installed", command=self.select_not_installed_roms)
+        self.select_not_installed_button.pack(side=tk.LEFT, padx=(0, 10))
+        
         self.download_button = ttk.Button(control_frame, text="Download Selected", command=self.start_download)
         self.download_button.pack(side=tk.RIGHT)
         
@@ -517,6 +520,21 @@ class MainWindow:
         for item in self.rom_tree.get_children():
             self._update_rom_display(item, False)
     
+    def select_not_installed_roms(self):
+        """Select only ROMs that are not installed."""
+        for rom in self.filtered_roms:
+            if rom.name in self.selected_roms:
+                # Check if ROM is installed
+                is_installed = self._is_rom_installed(rom)
+                # Select only if NOT installed
+                self.selected_roms[rom.name].set(not is_installed)
+        
+        # Update visual display
+        for item in self.rom_tree.get_children():
+            rom_name = self.rom_tree.item(item, 'text')
+            is_selected = rom_name in self.selected_roms and self.selected_roms[rom_name].get()
+            self._update_rom_display(item, is_selected)
+    
     def start_download(self):
         """Start downloading selected ROMs."""
         selected_roms = [rom for rom in self.filtered_roms 
@@ -816,4 +834,5 @@ class MainWindow:
         self.scan_button.config(state='normal' if has_platform else 'disabled')
         self.select_all_button.config(state='normal' if has_roms else 'disabled')
         self.deselect_all_button.config(state='normal' if has_roms else 'disabled')
+        self.select_not_installed_button.config(state='normal' if has_roms else 'disabled')
         self.download_button.config(state='normal' if has_roms else 'disabled')

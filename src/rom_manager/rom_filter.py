@@ -108,6 +108,9 @@ class RomFilter:
         for pattern, replacement in region_mappings.items():
             normalized = re.sub(pattern, replacement, normalized)
         
+        # Remove numeric prefixes (common in GBA collections: "0001 - Game Name")
+        normalized = re.sub(r'^\d{3,4}\s*-\s*', '', normalized)
+        
         # Remove common variations
         normalized = re.sub(r'\s*[-_]\s*', ' ', normalized)  # Normalize separators
         normalized = re.sub(r'\s+', ' ', normalized)  # Normalize whitespace
@@ -389,7 +392,9 @@ class RomFilter:
         logger.debug(f"Checking installed status for ROM: {rom.clean_name} (normalized: {normalized_name})")
         
         # Use a more efficient approach for network drives
-        rom_extensions = ['.rvz', '.zip', '.7z', '.iso', '.gcm', '.bin', '.cue', '.chd']
+        rom_extensions = ['.rvz', '.zip', '.7z', '.iso', '.gcm', '.bin', '.cue', '.chd', 
+                         '.n64', '.z64', '.v64', '.nes', '.sfc', '.smc', '.gba', '.gbc', '.gb', 
+                         '.nds', '.vb', '.pce', '.a26', '.a52', '.a78', '.cdi', '.gdi', '.wux', '.wud']
         
         try:
             # Try direct file matching first (much faster for network drives)

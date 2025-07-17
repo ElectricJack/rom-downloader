@@ -43,6 +43,7 @@ class GameLibraryGUI:
         
         # UI components
         self.tag_buttons = {}
+        self.tag_variables = {}
         self.game_tree = None
         self.variant_list = None
         self.progress_bar = None
@@ -110,6 +111,17 @@ class GameLibraryGUI:
         """Set up dynamic tag filter buttons"""
         self.tag_frame = ttk.LabelFrame(parent, text="Filter by Tags")
         self.tag_frame.pack(fill=tk.X, pady=(0, 5))
+        
+        # Top row with clear button
+        button_row = ttk.Frame(self.tag_frame)
+        button_row.pack(fill=tk.X, padx=5, pady=(5, 0))
+        
+        self.clear_filters_button = ttk.Button(
+            button_row, 
+            text="Clear All Filters", 
+            command=self.clear_tag_filters
+        )
+        self.clear_filters_button.pack(side=tk.LEFT)
         
         # Container for tag buttons
         self.tag_container = ttk.Frame(self.tag_frame)
@@ -281,6 +293,7 @@ class GameLibraryGUI:
         for button in self.tag_buttons.values():
             button.destroy()
         self.tag_buttons.clear()
+        self.tag_variables.clear()
         self.active_tag_filters.clear()
         
         # Get tags for this platform
@@ -299,6 +312,7 @@ class GameLibraryGUI:
             )
             button.grid(row=i // 8, column=i % 8, padx=2, pady=2, sticky=tk.W)
             self.tag_buttons[tag] = button
+            self.tag_variables[tag] = var
     
     def toggle_tag_filter(self, tag: str, var: tk.BooleanVar):
         """Toggle tag filter on/off"""
@@ -307,6 +321,17 @@ class GameLibraryGUI:
         else:
             self.active_tag_filters.discard(tag)
         
+        self.refresh_game_list()
+    
+    def clear_tag_filters(self):
+        """Clear all tag filters"""
+        self.active_tag_filters.clear()
+        
+        # Uncheck all tag buttons
+        for var in self.tag_variables.values():
+            var.set(False)
+        
+        # Refresh the game list
         self.refresh_game_list()
     
     def on_search_change(self, *args):
@@ -359,7 +384,8 @@ class GameLibraryGUI:
     def game_matches_tags(self, game: Game) -> bool:
         """Check if game matches current tag filters"""
         game_tags = game.get_all_tags()
-        return any(tag in game_tags for tag in self.active_tag_filters)
+        # Game must have ALL selected tags (AND logic)
+        return all(tag in game_tags for tag in self.active_tag_filters)
     
     def add_game_to_tree(self, game: Game, platform: str):
         """Add a game to the treeview"""

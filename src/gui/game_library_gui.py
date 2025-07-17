@@ -1179,7 +1179,6 @@ class GameLibraryGUI:
         
         # Use cached existing ROMs for fast lookup if available
         if self.existing_roms:
-            logger.debug(f"Using ROM cache with {len(self.existing_roms)} entries")
             # Normalize the ROM filename for comparison (same logic as scan_existing_roms)
             # Remove last extension first, then normalize
             stem = rom.filename
@@ -1187,10 +1186,7 @@ class GameLibraryGUI:
                 stem = '.'.join(stem.split('.')[:-1])  # Remove last extension
             
             normalized_name = self.rom_filter._normalize_name(stem)
-            logger.debug(f"Normalized ROM name: '{normalized_name}'")
-            is_installed = normalized_name in self.existing_roms
-            logger.debug(f"ROM installed check result: {is_installed}")
-            return is_installed
+            return normalized_name in self.existing_roms
         else:
             logger.debug("ROM cache is empty, using direct file checking")
         
@@ -1394,9 +1390,169 @@ class GameLibraryGUI:
             sample_roms = list(self.existing_roms)[:5]
             logger.info(f"Sample cached ROM names: {sample_roms}")
         
-        # Update existing tree items without full refresh to avoid recursion
-        self._update_existing_tree_items_installation_status()
+        # Schedule async tree update to avoid blocking the main thread
+        import threading
+        thread = threading.Thread(target=self._async_update_tree_installation_status)
+        thread.daemon = True
+        thread.start()
         self.update_status("Ready")
+    
+    def _async_update_tree_installation_status(self):
+        """Update tree installation status asynchronously in chunks"""
+        try:
+            if not self._gui_active or not self.current_games:
+                return
+            
+            platform = self.current_platform.get()
+            if not platform:
+                return
+            
+            # Get all tree items to update
+            tree_items = list(self.game_tree.get_children())
+            total_items = len(tree_items)
+            
+            # Process in chunks to avoid blocking
+            chunk_size = 50  # Process 50 games at a time
+            processed = 0
+            
+            for i in range(0, total_items, chunk_size):
+                if not self._gui_active:
+                    break
+                
+                chunk = tree_items[i:i + chunk_size]
+                
+                # Process this chunk
+                updates = []
+                for item_id in chunk:
+                    try:
+                        game_key = self.game_tree.set(item_id, 'game_key')
+                        if game_key:
+                            # Find the game object
+                            game = None
+                            for g in self.current_games:
+                                if g.key == game_key:
+                                    game = g
+                                    break
+                            
+                            if game:
+                                # Prepare update data for this game and its variants
+                                game_update = self._prepare_game_installation_update(item_id, game, platform)
+                                if game_update:
+                                    updates.append(game_update)
+                                
+                                # Prepare updates for child variants
+                                for child_item in self.game_tree.get_children(item_id):
+                                    variant_update = self._prepare_variant_installation_update(child_item, game, platform)
+                                    if variant_update:
+                                        updates.append(variant_update)
+                    except Exception as e:
+                        logger.error(f"Error preparing update for tree item {item_id}: {e}")
+                
+                # Schedule GUI updates on main thread
+                if updates:
+                    self._safe_gui_update(lambda: self._apply_tree_updates(updates))
+                
+                processed += len(chunk)
+                
+                # Small delay between chunks to keep GUI responsive
+                import time
+                time.sleep(0.01)
+            
+            logger.info(f"Completed async tree installation status update for {processed} items")
+            
+        except Exception as e:
+            logger.error(f"Error in async tree installation status update: {e}")
+    
+    def _prepare_game_installation_update(self, item_id: str, game, platform: str):
+        """Prepare installation status update data for a game item"""
+        try:
+            variants = game.get_variants_for_platform(platform)
+            installed_variants = []
+            for rom in variants:
+                if self.is_rom_installed(rom, platform):
+                    installed_variants.append(rom)
+            
+            installed_text = "✓" if installed_variants else ""
+            
+            # Determine visual tags
+            current_tags = list(self.game_tree.item(item_id, 'tags'))
+            new_tags = [tag for tag in current_tags if tag not in ['installed', 'queued_installed']]
+            
+            if installed_variants:
+                new_tags.append('installed')
+                if 'queued' in current_tags:
+                    new_tags.append('queued_installed')
+            
+            return {
+                'item_id': item_id,
+                'type': 'game',
+                'installed_text': installed_text,
+                'tags': tuple(new_tags)
+            }
+        except Exception as e:
+            logger.error(f"Error preparing game update for {item_id}: {e}")
+            return None
+    
+    def _prepare_variant_installation_update(self, item_id: str, game, platform: str):
+        """Prepare installation status update data for a variant item"""
+        try:
+            variant_key = self.game_tree.set(item_id, 'variant_key')
+            if not variant_key:
+                return None
+            
+            # Find the ROM variant
+            variants = game.get_variants_for_platform(platform)
+            rom_variant = None
+            for rom in variants:
+                if rom.create_variant_key() == variant_key:
+                    rom_variant = rom
+                    break
+            
+            if not rom_variant:
+                return None
+            
+            is_installed = self.is_rom_installed(rom_variant, platform)
+            installed_text = "✓" if is_installed else ""
+            
+            # Determine visual tags
+            current_tags = list(self.game_tree.item(item_id, 'tags'))
+            new_tags = [tag for tag in current_tags if tag not in ['installed', 'queued_installed']]
+            
+            if is_installed:
+                new_tags.append('installed')
+                if 'queued' in current_tags:
+                    new_tags.append('queued_installed')
+            
+            return {
+                'item_id': item_id,
+                'type': 'variant',
+                'installed_text': installed_text,
+                'tags': tuple(new_tags)
+            }
+        except Exception as e:
+            logger.error(f"Error preparing variant update for {item_id}: {e}")
+            return None
+    
+    def _apply_tree_updates(self, updates):
+        """Apply a batch of tree updates on the main thread"""
+        try:
+            for update in updates:
+                if not self._gui_active:
+                    break
+                
+                item_id = update['item_id']
+                if not self.game_tree.exists(item_id):
+                    continue
+                
+                # Update the installed column
+                current_values = list(self.game_tree.item(item_id, 'values'))
+                current_values[1] = update['installed_text']  # Installed column
+                
+                # Apply the update
+                self.game_tree.item(item_id, values=tuple(current_values), tags=update['tags'])
+                
+        except Exception as e:
+            logger.error(f"Error applying tree updates: {e}")
     
     def _update_existing_tree_items_installation_status(self):
         """Update installation status of existing tree items without full refresh"""

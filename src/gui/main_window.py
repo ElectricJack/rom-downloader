@@ -679,6 +679,29 @@ class MainWindow:
             messagebox.showwarning("No Selection", "Please select ROMs to download.")
             return
         
+        # Filter out already installed ROMs
+        roms_to_download = []
+        already_installed = []
+        
+        for rom in selected_roms:
+            if self._is_rom_installed(rom):
+                already_installed.append(rom.clean_name)
+            else:
+                roms_to_download.append(rom)
+        
+        # Inform user about already installed ROMs
+        if already_installed:
+            skipped_count = len(already_installed)
+            message = f"Skipping {skipped_count} ROM(s) that are already installed:\n\n"
+            message += "\n".join(already_installed[:10])  # Show first 10
+            if len(already_installed) > 10:
+                message += f"\n... and {len(already_installed) - 10} more"
+            messagebox.showinfo("ROMs Already Installed", message)
+        
+        if not roms_to_download:
+            messagebox.showinfo("Nothing to Download", "All selected ROMs are already installed.")
+            return
+        
         target_path = self.config_manager.get_target_path(self.current_platform)
         if not target_path:
             messagebox.showerror("Configuration Error", 
@@ -686,7 +709,7 @@ class MainWindow:
             return
         
         # Run download in separate thread
-        threading.Thread(target=self._download_thread, args=(selected_roms, target_path), daemon=True).start()
+        threading.Thread(target=self._download_thread, args=(roms_to_download, target_path), daemon=True).start()
     
     def _download_thread(self, roms: List[RomInfo], target_path: Path):
         """Thread function for downloading ROMs."""

@@ -147,6 +147,9 @@ class MainWindow:
         self.select_not_installed_button = ttk.Button(control_frame, text="Select Not Installed", command=self.select_not_installed_roms)
         self.select_not_installed_button.pack(side=tk.LEFT, padx=(0, 10))
         
+        self.delete_button = ttk.Button(control_frame, text="Delete Selected", command=self.delete_selected_roms)
+        self.delete_button.pack(side=tk.LEFT, padx=(0, 10))
+        
         self.download_button = ttk.Button(control_frame, text="Download Selected", command=self.start_download)
         self.download_button.pack(side=tk.RIGHT)
         
@@ -157,14 +160,16 @@ class MainWindow:
         list_frame.rowconfigure(0, weight=1)
         
         # Create treeview for ROM list
-        self.rom_tree = ttk.Treeview(list_frame, columns=('region', 'size', 'type', 'installed'), show='tree headings')
+        self.rom_tree = ttk.Treeview(list_frame, columns=('selected', 'region', 'size', 'type', 'installed'), show='tree headings')
         self.rom_tree.heading('#0', text='ROM Name')
+        self.rom_tree.heading('selected', text='☐')  # Checkbox symbol
         self.rom_tree.heading('region', text='Region')
         self.rom_tree.heading('size', text='Size')
         self.rom_tree.heading('type', text='Type')
         self.rom_tree.heading('installed', text='Installed')
         
         self.rom_tree.column('#0', width=350)
+        self.rom_tree.column('selected', width=40, anchor='center')
         self.rom_tree.column('region', width=100)
         self.rom_tree.column('size', width=100)
         self.rom_tree.column('type', width=80)
@@ -179,7 +184,8 @@ class MainWindow:
         tree_scroll_y.grid(row=0, column=1, sticky=(tk.N, tk.S))
         tree_scroll_x.grid(row=1, column=0, sticky=(tk.W, tk.E))
         
-        # Bind double-click to toggle selection
+        # Bind single-click for checkbox column and double-click to toggle selection
+        self.rom_tree.bind('<Button-1>', self.on_tree_click)
         self.rom_tree.bind('<Double-1>', self.toggle_rom_selection)
         
         # Status frame
@@ -449,8 +455,9 @@ class MainWindow:
                 tags = (rom.name,)
             
             # Create a tag for each ROM to track selection
+            checkbox_symbol = "☑" if self.selected_roms.get(rom.name, tk.BooleanVar()).get() else "☐"
             rom_id = self.rom_tree.insert('', 'end', text=rom.clean_name,
-                                         values=(rom.region, display_size, display_type, installed_text),
+                                         values=(checkbox_symbol, rom.region, display_size, display_type, installed_text),
                                          tags=tags)
             
             # Store the tree item ID for later updates
@@ -498,6 +505,13 @@ class MainWindow:
         
         self.rom_tree.item(item, tags=tuple(current_tags))
         
+        # Update checkbox symbol in the selected column
+        current_values = list(self.rom_tree.item(item, 'values'))
+        if current_values:
+            checkbox_symbol = "☑" if selected else "☐"
+            current_values[0] = checkbox_symbol  # First column is the checkbox
+            self.rom_tree.item(item, values=tuple(current_values))
+        
         # Configure tag appearance
         self.rom_tree.tag_configure('selected', background='lightblue')
         self.rom_tree.tag_configure('installed', background='lightgreen')
@@ -534,6 +548,78 @@ class MainWindow:
             rom_name = self.rom_tree.item(item, 'text')
             is_selected = rom_name in self.selected_roms and self.selected_roms[rom_name].get()
             self._update_rom_display(item, is_selected)
+    
+    def on_tree_click(self, event):
+        """Handle tree click events, specifically for checkbox column."""
+        item = self.rom_tree.identify('item', event.x, event.y)
+        column = self.rom_tree.identify('column', event.x, event.y)
+        
+        # Check if click was on the checkbox column (#1 is first column)
+        if item and column == '#1':  # Selected column
+            rom_name = self.rom_tree.item(item, 'text')
+            if rom_name in self.selected_roms:
+                # Toggle selection
+                current_value = self.selected_roms[rom_name].get()
+                self.selected_roms[rom_name].set(not current_value)
+                self._update_rom_display(item, not current_value)
+    
+    def delete_selected_roms(self):
+        """Delete selected ROMs that are installed."""
+        # Get selected ROMs that are installed
+        selected_installed_roms = []
+        for rom in self.filtered_roms:
+            if (rom.name in self.selected_roms and 
+                self.selected_roms[rom.name].get() and 
+                self._is_rom_installed(rom)):
+                selected_installed_roms.append(rom)
+        
+        if not selected_installed_roms:
+            messagebox.showwarning("No Selection", 
+                                 "Please select installed ROMs to delete.\nOnly installed ROMs can be deleted.")
+            return
+        
+        # Confirm deletion
+        rom_names = [rom.clean_name for rom in selected_installed_roms]
+        message = f"Are you sure you want to delete {len(rom_names)} ROM(s) from the remote device?\n\n"
+        message += "\n".join(rom_names[:10])  # Show first 10
+        if len(rom_names) > 10:
+            message += f"\n... and {len(rom_names) - 10} more"
+        
+        if not messagebox.askyesno("Confirm Deletion", message):
+            return
+        
+        # Perform deletion
+        deleted_count = 0
+        failed_deletions = []
+        
+        for rom in selected_installed_roms:
+            try:
+                # Find the actual file on the remote device
+                if self.current_target_path:
+                    rom_files = list(self.current_target_path.glob(f"{rom.clean_name}.*"))
+                    for rom_file in rom_files:
+                        if rom_file.is_file():
+                            rom_file.unlink()
+                            deleted_count += 1
+                            logger.info(f"Deleted ROM: {rom_file.name}")
+                            break
+                    else:
+                        failed_deletions.append(rom.clean_name)
+            except Exception as e:
+                logger.error(f"Failed to delete ROM {rom.clean_name}: {e}")
+                failed_deletions.append(rom.clean_name)
+        
+        # Show results and refresh
+        if deleted_count > 0:
+            messagebox.showinfo("Deletion Complete", 
+                              f"Successfully deleted {deleted_count} ROM(s).")
+            # Refresh the ROM list to update installation status
+            self.scan_roms()
+        
+        if failed_deletions:
+            messagebox.showerror("Deletion Errors", 
+                               f"Failed to delete {len(failed_deletions)} ROM(s):\n" + 
+                               "\n".join(failed_deletions[:10]))
     
     def start_download(self):
         """Start downloading selected ROMs."""
@@ -835,4 +921,5 @@ class MainWindow:
         self.select_all_button.config(state='normal' if has_roms else 'disabled')
         self.deselect_all_button.config(state='normal' if has_roms else 'disabled')
         self.select_not_installed_button.config(state='normal' if has_roms else 'disabled')
+        self.delete_button.config(state='normal' if has_roms else 'disabled')
         self.download_button.config(state='normal' if has_roms else 'disabled')

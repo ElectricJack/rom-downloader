@@ -15,6 +15,7 @@ from downloader.enhanced_download_manager import EnhancedDownloadManager, Downlo
 from processors.game_library_processor import GameLibraryProcessor
 from scraper.web_scraper import WebScraper, RomInfo
 from rom_manager.rom_filter import RomFilter
+from filters.advanced_rom_filter import AdvancedRomFilter, FilterCriteria
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,7 @@ class GameLibraryGUI:
         self.library_processor = GameLibraryProcessor()
         self.web_scraper = WebScraper()
         self.rom_filter = RomFilter()
+        self.advanced_filter = AdvancedRomFilter()
         
         # GUI state
         self.current_platform = tk.StringVar()
@@ -1338,7 +1340,7 @@ class GameLibraryGUI:
         return filtered_games
     
     def game_matches_tags(self, game: Game, filter_tags: Set[str] = None) -> bool:
-        """Check if game matches current tag filters"""
+        """Check if game matches current tag filters using advanced filtering logic"""
         if filter_tags is None:
             # Use all active filters (both checkbox and custom)
             all_filters = self.active_tag_filters.copy()
@@ -1349,12 +1351,15 @@ class GameLibraryGUI:
         if not filter_tags:
             return True
             
+        # Create filter criteria from selected tags
+        criteria = self.advanced_filter.create_filter_criteria(filter_tags)
+        
+        # Check if game matches criteria using all its tags
         game_tags = game.get_all_tags()
-        # Game must have ALL selected tags (AND logic)
-        return all(any(tag.lower() == game_tag.lower() for game_tag in game_tags) for tag in filter_tags)
+        return self.advanced_filter.rom_matches_criteria(game_tags, criteria)
     
     def rom_matches_tags(self, rom, filter_tags: Set[str] = None) -> bool:
-        """Check if ROM variant matches current tag filters"""
+        """Check if ROM variant matches current tag filters using advanced filtering logic"""
         if filter_tags is None:
             # Use all active filters (both checkbox and custom)
             all_filters = self.active_tag_filters.copy()
@@ -1365,9 +1370,11 @@ class GameLibraryGUI:
         if not filter_tags:
             return True
             
-        rom_tags = rom.tags
-        # ROM must have ALL selected tags (AND logic)
-        return all(any(tag.lower() == rom_tag.lower() for rom_tag in rom_tags) for tag in filter_tags)
+        # Create filter criteria from selected tags
+        criteria = self.advanced_filter.create_filter_criteria(filter_tags)
+        
+        # Check if ROM matches criteria
+        return self.advanced_filter.rom_matches_criteria(rom.tags, criteria)
     
     def add_game_to_tree(self, game: Game, platform: str):
         """Add a game and its variants to the treeview"""

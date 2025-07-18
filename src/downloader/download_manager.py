@@ -697,11 +697,12 @@ class DownloadManager:
         logger.info(f"CHD conversion: source file size={source_file.stat().st_size} bytes")
         
         try:
+            source_file_size = source_file.stat().st_size
             logger.info(f"Converting {source_file.name} to CHD format...")
             
             # Update progress to show conversion status
             if progress_callback and rom:
-                convert_progress = DownloadProgress(rom, 0, 0, operation="converting")
+                convert_progress = DownloadProgress(rom, 0, source_file_size, operation="converting")
                 progress_callback(convert_progress)
             
             # Determine chdman command based on file type
@@ -745,6 +746,7 @@ class DownloadManager:
             stdout_lines = []
             stderr_lines = []
             last_update = time.time()
+            last_logged_progress = -1  # Track last logged progress percentage
             
             while process.poll() is None:
                 # Check for timeout
@@ -772,21 +774,34 @@ class DownloadManager:
                 except:
                     pass
                 
-                # Periodic status update
+                # Periodic status update (check every 10 seconds, but only log every 10% progress)
                 current_time = time.time()
-                if current_time - last_update >= 10:  # Every 10 seconds
+                if current_time - last_update >= 10:  # Check every 10 seconds
                     elapsed = current_time - start_time
-                    logger.info(f"CHD conversion: still running... elapsed time: {elapsed:.1f}s")
                     
                     # Check if output file is being created/growing
                     if chd_file.exists():
                         chd_size = chd_file.stat().st_size
-                        logger.info(f"CHD conversion: output file size: {chd_size} bytes")
                         
-                        # Update progress if we have a callback
+                        # Calculate progress percentage based on output file size vs expected final size
+                        # CHD files are typically 60-80% of original size, so use conservative estimate
+                        estimated_final_size = int(source_file_size * 0.7)  # 70% estimate
+                        progress_percent = min(int((chd_size / estimated_final_size) * 100), 95) if estimated_final_size > 0 else 0
+                        
+                        # Only log if we've reached the next 10% milestone
+                        if progress_percent >= last_logged_progress + 10:
+                            last_logged_progress = (progress_percent // 10) * 10  # Round down to nearest 10%
+                            logger.info(f"CHD conversion: {last_logged_progress}% complete (elapsed: {elapsed:.1f}s, output size: {chd_size} bytes)")
+                        
+                        # Update progress callback regardless of logging
                         if progress_callback and rom:
-                            convert_progress = DownloadProgress(rom, chd_size, chd_size, operation="converting")
+                            convert_progress = DownloadProgress(rom, chd_size, estimated_final_size, operation="converting")
                             progress_callback(convert_progress)
+                    else:
+                        # File doesn't exist yet, only log once at startup
+                        if last_logged_progress < 0:
+                            logger.info(f"CHD conversion: initializing... elapsed time: {elapsed:.1f}s")
+                            last_logged_progress = 0
                     
                     last_update = current_time
                 
@@ -919,12 +934,26 @@ class DownloadManager:
         }
     
     def cleanup_temp_files(self) -> None:
-        """Clean up temporary download files."""
+        """Clean up temporary download files and directories."""
         try:
             if self.temp_path.exists():
-                for file_path in self.temp_path.iterdir():
-                    if file_path.is_file():
-                        file_path.unlink()
-                        logger.debug(f"Cleaned up temp file: {file_path}")
+                cleaned_files = 0
+                cleaned_dirs = 0
+                for item_path in self.temp_path.iterdir():
+                    try:
+                        if item_path.is_file():
+                            item_path.unlink()
+                            cleaned_files += 1
+                            logger.debug(f"Cleaned up temp file: {item_path}")
+                        elif item_path.is_dir():
+                            # Remove directory and all contents (for processed_{id} folders)
+                            shutil.rmtree(item_path)
+                            cleaned_dirs += 1
+                            logger.debug(f"Cleaned up temp directory: {item_path}")
+                    except Exception as e:
+                        logger.warning(f"Failed to clean up temp item {item_path}: {e}")
+                
+                if cleaned_files > 0 or cleaned_dirs > 0:
+                    logger.info(f"Cleaned up {cleaned_files} temporary files and {cleaned_dirs} directories")
         except Exception as e:
             logger.error(f"Error cleaning up temp files: {e}")

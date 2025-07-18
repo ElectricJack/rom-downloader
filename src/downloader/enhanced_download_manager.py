@@ -587,6 +587,18 @@ class EnhancedDownloadManager:
             # Remove source file after successful copy
             item.src_file.unlink(missing_ok=True)
             
+            # Clean up parent directory if it's a processed_{id} directory and is now empty
+            parent_dir = item.src_file.parent
+            if parent_dir.name.startswith('processed_') and parent_dir.parent == self.temp_dir:
+                try:
+                    # Only remove if directory is empty
+                    if not any(parent_dir.iterdir()):
+                        parent_dir.rmdir()
+                        logger.debug(f"Cleaned up empty processed directory: {parent_dir.name}")
+                except OSError:
+                    # Directory not empty or other error - ignore
+                    pass
+            
             logger.info(f"Successfully copied {item.src_file.name} to {item.dst_file} ({file_size} bytes)")
             return True
             
@@ -598,20 +610,25 @@ class EnhancedDownloadManager:
             return False
     
     def cleanup_temp_files(self):
-        """Clean up temporary files"""
+        """Clean up temporary files and directories"""
         if not self.temp_dir.exists():
             return
         
-        cleaned_count = 0
-        for temp_file in self.temp_dir.iterdir():
-            if temp_file.is_file():
-                try:
-                    temp_file.unlink()
-                    cleaned_count += 1
-                except Exception as e:
-                    logger.warning(f"Failed to clean up temp file {temp_file}: {e}")
+        cleaned_files = 0
+        cleaned_dirs = 0
+        for temp_item in self.temp_dir.iterdir():
+            try:
+                if temp_item.is_file():
+                    temp_item.unlink()
+                    cleaned_files += 1
+                elif temp_item.is_dir():
+                    # Remove directory and all contents (for processed_{id} folders)
+                    shutil.rmtree(temp_item)
+                    cleaned_dirs += 1
+            except Exception as e:
+                logger.warning(f"Failed to clean up temp item {temp_item}: {e}")
         
-        logger.info(f"Cleaned up {cleaned_count} temporary files")
+        logger.info(f"Cleaned up {cleaned_files} temporary files and {cleaned_dirs} directories")
     
     def test_connection(self, url: str) -> bool:
         """Test connection to a URL"""

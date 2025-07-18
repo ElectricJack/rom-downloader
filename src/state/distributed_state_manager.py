@@ -478,6 +478,16 @@ class DistributedStateManager:
         
         self.selections_dirty = True
     
+    def remove_selection(self, game_key: str, platform: str):
+        """Remove a specific selection for a game on a platform"""
+        selection_key = f"{platform}:{game_key}"
+        if selection_key in self.selections:
+            del self.selections[selection_key]
+            self.selections_dirty = True
+            self.save_selections()  # Auto-save after removal
+            return True
+        return False
+    
     def clear_all_selections(self):
         """Clear all user selections"""
         self.selections.clear()

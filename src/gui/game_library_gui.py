@@ -57,6 +57,8 @@ class GameLibraryGUI:
         self.existing_roms = set()  # Cache of installed ROMs
         self._gui_active = True  # Flag to track if GUI is still active
         self._async_update_cancelled = False  # Flag to cancel async updates
+        self.installation_count = 0  # Track completed installations
+        self.total_queued_count = 0  # Track total ROMs queued for download
         
         self.setup_ui()
         self.refresh_platform_list()
@@ -2265,6 +2267,10 @@ class GameLibraryGUI:
             # Check if GUI is still active
             if not self._gui_active:
                 return
+            
+            # Initialize tracking variables
+            self.installation_count = 0
+            self.total_queued_count = len(roms)
                 
             def progress_callback(rom: ROM, progress: DownloadProgress):
                 self._safe_gui_update(lambda: self._update_download_progress(rom, progress))
@@ -2284,9 +2290,17 @@ class GameLibraryGUI:
                 copy_progress_callback, copy_completion_callback
             )
             
-            # Show results
-            successful = sum(1 for r in results if r.success)
-            self._safe_gui_update(lambda: self._download_complete(successful, len(results)))
+            # Wait for all copies to complete, then show final results
+            self._safe_gui_update(lambda: self.update_status("Downloads complete, waiting for all copies to finish..."))
+            
+            # Wait for all pending copies to complete
+            all_copies_complete = self.download_manager.wait_for_all_copies_complete(timeout=300)  # 5 minute timeout
+            
+            if all_copies_complete:
+                self._safe_gui_update(lambda: self._installation_complete())
+            else:
+                # Timeout occurred, show warning
+                self._safe_gui_update(lambda: self._installation_timeout_warning())
             
         except Exception as e:
             logger.error(f"Error during download: {e}")
@@ -2317,19 +2331,47 @@ class GameLibraryGUI:
         """Update copy completion in UI"""
         if result.success:
             self.copy_progress_bar['value'] = 100  # Show completion briefly
-            self.update_status(f"Copied to network: {rom.filename}")
-            # Refresh display to update installed status after copy completes
+            self.update_status(f"Installed: {rom.filename}")
+            self.installation_count += 1
+            
+            # Remove ROM from selection queue after successful installation
+            platform = self.current_platform.get()
+            if platform:
+                # Find the game key for this ROM
+                for game in self.current_games:
+                    for variant_key, variant_rom in game.variants.items():
+                        if variant_rom.filename == rom.filename:
+                            # Remove from queue
+                            self.state_manager.remove_selection(game.game_key, platform)
+                            logger.info(f"Removed {game.game_key} from queue after successful installation")
+                            break
+            
+            # Refresh display to update installed status and queue status after copy completes
             self.refresh_game_list()
         else:
             self.copy_progress_bar['value'] = 0  # Reset on failure
-            self.update_status(f"Copy failed: {rom.filename} - {result.error_message}")
+            self.update_status(f"Installation failed: {rom.filename} - {result.error_message}")
     
-    def _download_complete(self, successful: int, total: int):
-        """Handle download completion"""
+    def _installation_complete(self):
+        """Handle installation completion"""
         self.progress_bar['value'] = 0
         self.copy_progress_bar['value'] = 0
-        self.update_status(f"Download complete: {successful}/{total} successful")
-        messagebox.showinfo("Download Complete", f"Downloaded {successful} out of {total} ROMs")
+        self.update_status(f"Installation complete: {self.installation_count}/{self.total_queued_count} successful")
+        messagebox.showinfo("Installation Complete", f"Successfully installed {self.installation_count} out of {self.total_queued_count} ROMs")
+        
+        # Refresh installed ROM cache
+        platform = self.current_platform.get()
+        if platform:
+            self.check_installed_roms()
+    
+    def _installation_timeout_warning(self):
+        """Handle installation timeout warning"""
+        self.progress_bar['value'] = 0
+        self.copy_progress_bar['value'] = 0
+        self.update_status(f"Installation timeout: {self.installation_count}/{self.total_queued_count} completed")
+        messagebox.showwarning("Installation Timeout", 
+                              f"Installation process timed out. {self.installation_count} out of {self.total_queued_count} ROMs completed.\n"
+                              "Some copies may still be in progress.")
         
         # Refresh installed ROM cache
         platform = self.current_platform.get()

@@ -120,6 +120,8 @@ class EnhancedDownloadManager:
         self.copy_progress_callback = None
         self.copy_completion_callback = None
         self.current_copy_item = None
+        self.pending_copies = set()  # Track pending copies by ROM filename
+        self.completed_installations = set()  # Track completed installations
         
         logger.info(f"Enhanced download manager initialized with temp dir: {self.temp_dir}")
     
@@ -349,6 +351,7 @@ class EnhancedDownloadManager:
                     dst_file=final_file
                 )
                 self.copy_queue.put(copy_item)
+                self.pending_copies.add(rom.filename)
                 logger.debug(f"Queued for copy: {rom.filename}")
                 
                 return ProcessingResult(
@@ -395,8 +398,36 @@ class EnhancedDownloadManager:
             'max_concurrent': self.max_concurrent,
             'delay_range': self.delay_range,
             'active_downloads': len(self.current_downloads),
+            'pending_copies': len(self.pending_copies),
+            'completed_installations': len(self.completed_installations),
             'cancelled': self.cancelled
         }
+    
+    def is_installation_complete(self, rom_filename: str) -> bool:
+        """Check if a ROM installation is complete"""
+        return rom_filename in self.completed_installations
+    
+    def is_copy_pending(self, rom_filename: str) -> bool:
+        """Check if a ROM copy is pending"""
+        return rom_filename in self.pending_copies
+    
+    def get_copy_queue_size(self) -> int:
+        """Get the current size of the copy queue"""
+        return self.copy_queue.qsize()
+    
+    def wait_for_all_copies_complete(self, timeout: float = None) -> bool:
+        """Wait for all pending copies to complete"""
+        try:
+            # Wait for the copy queue to be empty and all pending copies finished
+            start_time = time.time()
+            while self.pending_copies or not self.copy_queue.empty():
+                if timeout and (time.time() - start_time) > timeout:
+                    return False
+                time.sleep(0.1)
+            return True
+        except Exception as e:
+            logger.error(f"Error waiting for copies to complete: {e}")
+            return False
     
     def _copy_worker(self):
         """Background worker thread for processing network copy queue"""
@@ -415,6 +446,7 @@ class EnhancedDownloadManager:
                 
                 if success:
                     logger.info(f"Successfully copied: {item.rom.filename}")
+                    self.completed_installations.add(item.rom.filename)
                     # Notify GUI that copy succeeded
                     if self.copy_completion_callback:
                         result = DownloadResult(
@@ -433,6 +465,9 @@ class EnhancedDownloadManager:
                             error_message="Copy failed"
                         )
                         self.copy_completion_callback(item.rom, result)
+                
+                # Remove from pending copies tracking
+                self.pending_copies.discard(item.rom.filename)
                 
                 self.copy_queue.task_done()
                 self.current_copy_item = None
@@ -454,6 +489,7 @@ class EnhancedDownloadManager:
             file_size = item.src_file.stat().st_size
             copied_bytes = 0
             buffer_size = 64 * 1024  # 64KB buffer
+            start_time = time.time()
             
             # Ensure target directory exists
             item.dst_file.parent.mkdir(parents=True, exist_ok=True)
@@ -466,21 +502,29 @@ class EnhancedDownloadManager:
                         break
                     
                     dst.write(buffer)
+                    dst.flush()  # Force write to disk to get accurate progress
                     copied_bytes += len(buffer)
                     
-                    # Update progress callback
+                    # Update progress callback with timing info
                     if self.copy_progress_callback and file_size > 0:
+                        elapsed = time.time() - start_time
+                        speed_bps = int(copied_bytes / elapsed) if elapsed > 0 else 0
+                        remaining_bytes = file_size - copied_bytes
+                        eta_seconds = int(remaining_bytes / speed_bps) if speed_bps > 0 else 0
+                        
                         progress = DownloadProgress(
                             rom=item.rom,
                             current_bytes=copied_bytes,
                             total_bytes=file_size,
+                            speed_bps=speed_bps,
+                            eta_seconds=eta_seconds,
                             operation="copying"
                         )
                         self.copy_progress_callback(item.rom, progress)
                     
-                    # Small delay for large files to allow UI updates
-                    if copied_bytes % (buffer_size * 10) == 0:  # Every 640KB
-                        time.sleep(0.001)  # 1ms delay
+                    # Small delay for large files to allow UI updates and prevent UI freezing
+                    if copied_bytes % (buffer_size * 5) == 0:  # Every 320KB
+                        time.sleep(0.01)  # 10ms delay for smoother UI updates
             
             # Copy file metadata (permissions, timestamps)
             try:

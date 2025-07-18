@@ -61,9 +61,30 @@
       "name": "Sony PlayStation Portable",
       "url": "https://myrient.erista.me/files/Redump/Sony%20-%20PlayStation%20Portable/",
       "target_folder": "psp",
-      "file_extensions": [".iso", ".zip", ".7z"],
-      "file_pattern": ".*\\.(iso|zip|7z)$",
-      "extract_archives": true
+      "file_extensions": [".iso", ".chd", ".zip", ".7z"],
+      "file_pattern": ".*\\.(iso|chd|zip|7z)$",
+      "extract_archives": true,
+      "tool_pipeline": [
+        {
+          "tool_id": "zip_extractor",
+          "parameters": {
+            "remove_original": true
+          },
+          "conditions": {
+            "file_types": [".zip", ".7z"]
+          }
+        },
+        {
+          "tool_id": "chd_converter",
+          "parameters": {
+            "chdman_path": "tools/chdman.exe",
+            "remove_original": true
+          },
+          "conditions": {
+            "file_types": [".iso"]
+          }
+        }
+      ]
     },
     "Xbox": {
       "name": "Microsoft Xbox",

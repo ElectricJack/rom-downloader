@@ -460,28 +460,26 @@ class GameLibraryGUI:
         if not platform:
             return
         
-        # Track which games were modified for batch updates
-        modified_games = set()
-        
-        # Process all selected items
-        for item in selections:
-            try:
-                item_type = self.game_tree.set(item, 'item_type')
-                game_key = self.game_tree.set(item, 'game_key')
-                variant_key = self.game_tree.set(item, 'variant_key')
-            except:
-                continue
+        # Use batch mode to prevent auto-save during bulk operations
+        with self.state_manager:
+            # Track which games were modified for batch updates
+            modified_games = set()
             
-            if item_type == 'game':
-                if self.add_game_to_queue_batch(game_key, platform):
-                    modified_games.add(game_key)
-            elif item_type == 'variant':
-                if self.add_variant_to_queue_batch(game_key, platform, variant_key):
-                    modified_games.add(game_key)
-        
-        # Save once after all operations
-        if self.state_manager.selections_dirty:
-            self.state_manager.save_selections()
+            # Process all selected items
+            for item in selections:
+                try:
+                    item_type = self.game_tree.set(item, 'item_type')
+                    game_key = self.game_tree.set(item, 'game_key')
+                    variant_key = self.game_tree.set(item, 'variant_key')
+                except:
+                    continue
+                
+                if item_type == 'game':
+                    if self.add_game_to_queue_batch(game_key, platform):
+                        modified_games.add(game_key)
+                elif item_type == 'variant':
+                    if self.add_variant_to_queue_batch(game_key, platform, variant_key):
+                        modified_games.add(game_key)
         
         # Update all modified games in batch
         self.update_game_tree_items_batch(modified_games, platform)
@@ -534,39 +532,36 @@ class GameLibraryGUI:
         if not platform:
             return
         
-        # Process all selected items
-        for item in selections:
-            try:
-                item_type = self.game_tree.set(item, 'item_type')
-                game_key = self.game_tree.set(item, 'game_key')
-                variant_key = self.game_tree.set(item, 'variant_key')
-            except:
-                continue
-            
-            if item_type in ['game', 'variant']:
-                # Remove from queue regardless of whether it's game or variant level
-                selection_key = f"{platform}:{game_key}"
-                if selection_key in self.state_manager.selections:
-                    del self.state_manager.selections[selection_key]
-                    self.state_manager.selections_dirty = True
-                    # Don't save after each item - save once at the end
-        
-        # Save selections once after processing all items
-        if self.state_manager.selections_dirty:
-            self.state_manager.save_selections()
-            
-            # Update all affected items in batch
-            processed_games = set()
+        # Use batch mode to prevent auto-save during bulk operations
+        with self.state_manager:
+            # Process all selected items
             for item in selections:
                 try:
+                    item_type = self.game_tree.set(item, 'item_type')
                     game_key = self.game_tree.set(item, 'game_key')
-                    if game_key:
-                        processed_games.add(game_key)
+                    variant_key = self.game_tree.set(item, 'variant_key')
                 except:
                     continue
-            
-            # Use batch update for better performance
-            self.update_game_tree_items_batch(processed_games, platform)
+                
+                if item_type in ['game', 'variant']:
+                    # Remove from queue regardless of whether it's game or variant level
+                    selection_key = f"{platform}:{game_key}"
+                    if selection_key in self.state_manager.selections:
+                        del self.state_manager.selections[selection_key]
+                        self.state_manager.selections_dirty = True
+        
+        # Update all affected items in batch
+        processed_games = set()
+        for item in selections:
+            try:
+                game_key = self.game_tree.set(item, 'game_key')
+                if game_key:
+                    processed_games.add(game_key)
+            except:
+                continue
+        
+        # Use batch update for better performance
+        self.update_game_tree_items_batch(processed_games, platform)
     
     def add_all_variants_to_queue(self):
         """Add all variants of selected games to queue"""
@@ -707,7 +702,7 @@ class GameLibraryGUI:
             child_values[1] = variant_installed  # Installed column
             self.game_tree.item(child_item, values=tuple(child_values), tags=tuple(variant_visual_tags))
     
-    def update_game_tree_items_batch(self, game_keys: set, platform: str):
+    def update_game_tree_items_batch(self, game_keys: set, platform: str, skip_installation_check: bool = True):
         """Update multiple game tree items efficiently in batch"""
         if not game_keys:
             return
@@ -738,61 +733,106 @@ class GameLibraryGUI:
             selection = self.state_manager.get_selection(game_key, platform)
             queued_text = "✓" if selection else ""
             
-            # Cache variants lookup and installed check
-            variants = game.get_variants_for_platform(platform)
-            installed_variants = []
-            variant_installed_map = {}  # Cache installed status for each variant
-            
-            for rom in variants:
-                is_installed = self.is_rom_installed(rom, platform)
-                variant_key = rom.create_variant_key()
-                variant_installed_map[variant_key] = is_installed
-                if is_installed:
-                    installed_variants.append(rom)
-            
-            installed_text = "✓" if installed_variants else ""
-            
-            # Update game item visual styling
-            visual_tags = ['game']
-            if selection:
-                visual_tags.append('queued')
-            if installed_variants:
-                visual_tags.append('installed')
-            if selection and installed_variants:
-                visual_tags.append('queued_installed')
-            
-            # Update game item values and tags
-            current_values = list(self.game_tree.item(game_item, 'values'))
-            current_values[0] = queued_text  # Queued column
-            current_values[1] = installed_text  # Installed column
-            self.game_tree.item(game_item, values=tuple(current_values), tags=tuple(visual_tags))
-            
-            # Update all child ROM variant items
-            for child_item in self.game_tree.get_children(game_item):
-                child_variant_key = self.game_tree.set(child_item, 'variant_key')
+            # For batch operations, skip expensive installation checks to avoid hanging
+            if skip_installation_check:
+                # Keep existing installed status from tree instead of rechecking
+                current_values = list(self.game_tree.item(game_item, 'values'))
+                installed_text = current_values[1] if len(current_values) > 1 else ""
                 
-                # Check if this specific variant is queued
-                variant_queued = ""
-                if selection and selection.selected_rom_variant == child_variant_key:
-                    variant_queued = "✓"
+                # Update game item visual styling (queue status only)
+                visual_tags = ['game']
+                if selection:
+                    visual_tags.append('queued')
+                if installed_text == "✓":
+                    visual_tags.append('installed')
+                if selection and installed_text == "✓":
+                    visual_tags.append('queued_installed')
                 
-                # Use cached installed status
-                variant_installed = "✓" if variant_installed_map.get(child_variant_key, False) else ""
+                # Update game item values and tags
+                current_values[0] = queued_text  # Queued column
+                self.game_tree.item(game_item, values=tuple(current_values), tags=tuple(visual_tags))
                 
-                # Update variant visual styling
-                variant_visual_tags = ['variant']
-                if variant_queued:
-                    variant_visual_tags.append('queued')
-                if variant_installed:
-                    variant_visual_tags.append('installed')
-                if variant_queued and variant_installed:
-                    variant_visual_tags.append('queued_installed')
+                # Update all child ROM variant items
+                for child_item in self.game_tree.get_children(game_item):
+                    child_variant_key = self.game_tree.set(child_item, 'variant_key')
+                    
+                    # Check if this specific variant is queued
+                    variant_queued = ""
+                    if selection and selection.selected_rom_variant == child_variant_key:
+                        variant_queued = "✓"
+                    
+                    # Keep existing installed status
+                    child_values = list(self.game_tree.item(child_item, 'values'))
+                    variant_installed = child_values[1] if len(child_values) > 1 else ""
+                    
+                    # Update variant visual styling
+                    variant_visual_tags = ['variant']
+                    if variant_queued:
+                        variant_visual_tags.append('queued')
+                    if variant_installed == "✓":
+                        variant_visual_tags.append('installed')
+                    if variant_queued and variant_installed == "✓":
+                        variant_visual_tags.append('queued_installed')
+                    
+                    # Update variant item values and tags
+                    child_values[0] = variant_queued  # Queued column
+                    self.game_tree.item(child_item, values=tuple(child_values), tags=tuple(variant_visual_tags))
+            else:
+                # Full update with installation checks (slower but accurate)
+                variants = game.get_variants_for_platform(platform)
+                installed_variants = []
+                variant_installed_map = {}  # Cache installed status for each variant
                 
-                # Update variant item values and tags
-                child_values = list(self.game_tree.item(child_item, 'values'))
-                child_values[0] = variant_queued  # Queued column
-                child_values[1] = variant_installed  # Installed column
-                self.game_tree.item(child_item, values=tuple(child_values), tags=tuple(variant_visual_tags))
+                for rom in variants:
+                    is_installed = self.is_rom_installed(rom, platform)
+                    variant_key = rom.create_variant_key()
+                    variant_installed_map[variant_key] = is_installed
+                    if is_installed:
+                        installed_variants.append(rom)
+                
+                installed_text = "✓" if installed_variants else ""
+                
+                # Update game item visual styling
+                visual_tags = ['game']
+                if selection:
+                    visual_tags.append('queued')
+                if installed_variants:
+                    visual_tags.append('installed')
+                if selection and installed_variants:
+                    visual_tags.append('queued_installed')
+                
+                # Update game item values and tags
+                current_values = list(self.game_tree.item(game_item, 'values'))
+                current_values[0] = queued_text  # Queued column
+                current_values[1] = installed_text  # Installed column
+                self.game_tree.item(game_item, values=tuple(current_values), tags=tuple(visual_tags))
+                
+                # Update all child ROM variant items
+                for child_item in self.game_tree.get_children(game_item):
+                    child_variant_key = self.game_tree.set(child_item, 'variant_key')
+                    
+                    # Check if this specific variant is queued
+                    variant_queued = ""
+                    if selection and selection.selected_rom_variant == child_variant_key:
+                        variant_queued = "✓"
+                    
+                    # Use cached installed status
+                    variant_installed = "✓" if variant_installed_map.get(child_variant_key, False) else ""
+                    
+                    # Update variant visual styling
+                    variant_visual_tags = ['variant']
+                    if variant_queued:
+                        variant_visual_tags.append('queued')
+                    if variant_installed:
+                        variant_visual_tags.append('installed')
+                    if variant_queued and variant_installed:
+                        variant_visual_tags.append('queued_installed')
+                    
+                    # Update variant item values and tags
+                    child_values = list(self.game_tree.item(child_item, 'values'))
+                    child_values[0] = variant_queued  # Queued column
+                    child_values[1] = variant_installed  # Installed column
+                    self.game_tree.item(child_item, values=tuple(child_values), tags=tuple(variant_visual_tags))
     
     def setup_bottom_section(self, parent):
         """Set up the bottom section with progress and status"""
@@ -2339,14 +2379,19 @@ class GameLibraryGUI:
             messagebox.showinfo("Info", "No ROMs queued for download")
             return
         
-        # Filter out already installed ROMs
+        # Filter out already installed ROMs using cached data for speed
         roms_to_download = []
         already_installed = []
         
         for rom in selected_roms:
-            if self.is_rom_installed(rom, platform):
+            # Use cached installation status to avoid expensive real-time checks
+            cached_status = rom.is_installed()
+            if cached_status is True:
                 already_installed.append(rom.filename)
             else:
+                # If not cached as installed, include it in download queue
+                # Real installation check will happen during actual download process
+                # This avoids expensive network checks that slow down the dialog
                 roms_to_download.append(rom)
         
         # Inform user about already installed ROMs

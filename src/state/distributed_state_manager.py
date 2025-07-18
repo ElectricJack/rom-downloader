@@ -44,9 +44,23 @@ class DistributedStateManager:
         self.selections_dirty = False
         self.settings_dirty = False
         
+        # Batch mode flag to disable auto-save during bulk operations
+        self.batch_mode = False
+        
         # Load app settings and selections
         self.load_app_settings()
         self.load_selections()
+    
+    def __enter__(self):
+        """Enter batch mode - disable auto-save"""
+        self.batch_mode = True
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Exit batch mode - re-enable auto-save and save if dirty"""
+        self.batch_mode = False
+        if self.selections_dirty:
+            self.save_selections()
     
     def load_app_settings(self) -> bool:
         """Load application settings"""
@@ -303,7 +317,15 @@ class DistributedStateManager:
             if 'tags' in rom_data:
                 rom_data['tags'] = set(rom_data['tags'])
             
+            # Remove init=False fields that shouldn't be passed to constructor
+            installation_status = rom_data.pop('_is_installed', None)
+            
             rom = ROM(**rom_data)
+            
+            # Restore installation status after creation
+            if installation_status is not None:
+                rom.set_installed(installation_status)
+                
             game.variants[variant_key] = rom
         
         return game
@@ -378,7 +400,8 @@ class DistributedStateManager:
         )
         self.selections[selection_key] = selection
         self.selections_dirty = True
-        self.save_selections()  # Auto-save selections
+        if not self.batch_mode:
+            self.save_selections()  # Auto-save selections (unless in batch mode)
     
     def get_selection(self, game_key: str, platform: str) -> Optional[UserSelection]:
         """Get user's selection for a game on a platform"""
@@ -484,7 +507,8 @@ class DistributedStateManager:
         if selection_key in self.selections:
             del self.selections[selection_key]
             self.selections_dirty = True
-            self.save_selections()  # Auto-save after removal
+            if not self.batch_mode:
+                self.save_selections()  # Auto-save after removal (unless in batch mode)
             return True
         return False
     

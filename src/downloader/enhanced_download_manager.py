@@ -203,7 +203,7 @@ class EnhancedDownloadManager:
             
             # Step 2: Process through tool pipeline
             processing_start = time.time()
-            processing_result = self._process_rom(downloaded_file, platform, target_dir, progress_callback)
+            processing_result = self._process_rom(downloaded_file, rom, platform, target_dir, progress_callback)
             processing_time = time.time() - processing_start
             
             # Step 3: Clean up temp file if processing succeeded
@@ -298,7 +298,7 @@ class EnhancedDownloadManager:
             temp_file.unlink(missing_ok=True)
             return None
     
-    def _process_rom(self, rom_file: Path, platform: str, target_dir: Path,
+    def _process_rom(self, rom_file: Path, rom: ROM, platform: str, target_dir: Path,
                     progress_callback: Optional[Callable[[ROM, DownloadProgress], None]] = None) -> ProcessingResult:
         """Process ROM through tool pipeline"""
         
@@ -306,16 +306,22 @@ class EnhancedDownloadManager:
         pipeline = self.config.get_platform_tool_pipeline(platform)
         
         if not pipeline:
-            # No processing needed, just move file to target
+            # No processing needed, just move file to target with progress tracking
             final_file = target_dir / rom_file.name
             try:
-                # Use shutil.move for cross-filesystem compatibility
-                shutil.move(str(rom_file), str(final_file))
-                return ProcessingResult(
-                    success=True,
-                    output_files=[final_file],
-                    metadata={'pipeline_steps': 0}
-                )
+                # Use progress-aware copy for cross-filesystem compatibility
+                success = self._copy_with_progress(rom_file, final_file, rom, progress_callback)
+                if success:
+                    return ProcessingResult(
+                        success=True,
+                        output_files=[final_file],
+                        metadata={'pipeline_steps': 0}
+                    )
+                else:
+                    return ProcessingResult(
+                        success=False,
+                        error_message="Failed to copy file with progress tracking"
+                    )
             except Exception as e:
                 return ProcessingResult(
                     success=False,
@@ -357,6 +363,73 @@ class EnhancedDownloadManager:
             'active_downloads': len(self.current_downloads),
             'cancelled': self.cancelled
         }
+    
+    def _copy_with_progress(self, src_file: Path, dst_file: Path, rom: ROM,
+                           progress_callback: Optional[Callable[[ROM, DownloadProgress], None]] = None) -> bool:
+        """Copy file with progress tracking for network operations"""
+        try:
+            # Get file size for progress tracking
+            file_size = src_file.stat().st_size
+            
+            copied_bytes = 0
+            buffer_size = 64 * 1024  # 64KB buffer
+            
+            # Ensure target directory exists
+            dst_file.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Perform the copy with progress tracking
+            with open(src_file, 'rb') as src, open(dst_file, 'wb') as dst:
+                while True:
+                    buffer = src.read(buffer_size)
+                    if not buffer:
+                        break
+                    
+                    dst.write(buffer)
+                    copied_bytes += len(buffer)
+                    
+                    # Update progress callback
+                    if progress_callback and file_size > 0:
+                        progress = DownloadProgress(
+                            rom=rom,
+                            bytes_downloaded=copied_bytes,
+                            total_bytes=file_size,
+                            operation="copying"
+                        )
+                        progress_callback(rom, progress)
+                    
+                    # Small delay for large files to allow UI updates
+                    if copied_bytes % (buffer_size * 10) == 0:  # Every 640KB
+                        time.sleep(0.001)  # 1ms delay
+            
+            # Copy file metadata (permissions, timestamps)
+            try:
+                shutil.copystat(str(src_file), str(dst_file))
+            except (OSError, PermissionError):
+                # Non-critical if we can't copy metadata
+                pass
+            
+            # Final progress update (100%)
+            if progress_callback:
+                progress = DownloadProgress(
+                    rom=rom,
+                    bytes_downloaded=file_size,
+                    total_bytes=file_size,
+                    operation="copying"
+                )
+                progress_callback(rom, progress)
+            
+            # Remove source file after successful copy
+            src_file.unlink(missing_ok=True)
+            
+            logger.info(f"Successfully copied {src_file.name} to {dst_file} ({file_size} bytes)")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to copy {src_file} to {dst_file}: {e}")
+            # Clean up partial destination file
+            if dst_file.exists():
+                dst_file.unlink(missing_ok=True)
+            return False
     
     def cleanup_temp_files(self):
         """Clean up temporary files"""

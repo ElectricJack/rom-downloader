@@ -407,8 +407,64 @@ class DistributedStateManager:
                 rom = game.variants.get(selection.selected_rom_variant)
                 if rom:
                     selected_roms.append(rom)
+                else:
+                    # Debug: variant key not found, try to find by other means
+                    logger.warning(f"Variant key '{selection.selected_rom_variant}' not found for game '{selection.game_key}'")
+                    logger.debug(f"Available variants: {list(game.variants.keys())}")
+                    
+                    # Try to find ROM by filename matching as fallback
+                    rom = self._find_rom_by_fallback(game, selection, platform)
+                    if rom:
+                        logger.info(f"Found ROM via fallback matching: {rom.filename}")
+                        selected_roms.append(rom)
+                    else:
+                        logger.error(f"Could not find ROM for selection: {selection.game_key} -> {selection.selected_rom_variant}")
+            else:
+                logger.warning(f"Game '{selection.game_key}' not found in platform library")
         
         return selected_roms
+    
+    def _find_rom_by_fallback(self, game: Game, selection: UserSelection, platform: str) -> Optional[ROM]:
+        """Try to find ROM by fallback methods when variant key doesn't match"""
+        # Strategy 1: Try to find by regenerating variant key for each ROM
+        for variant_key, rom in game.variants.items():
+            if rom.platform == platform:
+                # Regenerate the variant key to see if it matches
+                regenerated_key = rom.create_variant_key()
+                if regenerated_key == selection.selected_rom_variant:
+                    logger.debug(f"Found ROM via regenerated key: {regenerated_key}")
+                    return rom
+        
+        # Strategy 2: Try fuzzy matching on variant keys (handle minor differences)
+        for variant_key, rom in game.variants.items():
+            if rom.platform == platform:
+                # Check if the variant keys are similar (same file type + similar tags)
+                selected_parts = selection.selected_rom_variant.split('_')
+                variant_parts = variant_key.split('_')
+                
+                if len(selected_parts) > 0 and len(variant_parts) > 0:
+                    # Same file type?
+                    if selected_parts[0] == variant_parts[0]:
+                        # Check tag overlap
+                        selected_tags = set(selected_parts[1:]) if len(selected_parts) > 1 else set()
+                        variant_tags = set(variant_parts[1:]) if len(variant_parts) > 1 else set()
+                        
+                        # If tags have significant overlap, consider it a match
+                        if selected_tags and variant_tags:
+                            overlap = len(selected_tags & variant_tags) / max(len(selected_tags), len(variant_tags))
+                            if overlap >= 0.7:  # 70% tag overlap
+                                logger.debug(f"Found ROM via fuzzy tag matching: {variant_key} (overlap: {overlap:.2f})")
+                                return rom
+        
+        # Strategy 3: If all else fails, pick the best variant for the platform
+        logger.debug("Falling back to best variant selection")
+        preferred_regions = ["USA", "US", "English", "En", "World", "Europe", "Japan"]
+        best_rom = game.get_best_variant(platform, preferred_regions)
+        if best_rom:
+            logger.debug(f"Selected best variant: {best_rom.filename}")
+            return best_rom
+        
+        return None
     
     def clear_platform_selections(self, platform: str):
         """Clear all selections for a platform"""

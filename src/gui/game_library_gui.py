@@ -1020,7 +1020,9 @@ class GameLibraryGUI:
                 pass
         self._detached_items.clear()
         
-        # Now detach items that don't match filters
+        # Now detach items that don't match filters and rebuild variants for visible games
+        platform = self.current_platform.get()
+        
         for item_id in list(self.game_tree.get_children()):  # Create list copy since we're modifying
             game_key = self.game_tree.set(item_id, 'game_key')
             
@@ -1028,8 +1030,77 @@ class GameLibraryGUI:
                 # Hide this game by detaching it
                 self.game_tree.detach(item_id)
                 self._detached_items.append(item_id)
+            else:
+                # Game is visible - rebuild its variant children with current filters
+                self._rebuild_game_variants(item_id, game_key, platform)
         
         self.update_status(f"Showing {len(filtered_games)} games")
+    
+    def _rebuild_game_variants(self, game_item_id: str, game_key: str, platform: str):
+        """Rebuild variant children for a game with current tag filters"""
+        try:
+            # Find the game object
+            game = None
+            for g in self.current_games:
+                if g.key == game_key:
+                    game = g
+                    break
+            
+            if not game:
+                return
+            
+            # Remove all existing variant children
+            for child_id in list(self.game_tree.get_children(game_item_id)):
+                self.game_tree.delete(child_id)
+            
+            # Get all variants for this platform
+            variants = game.get_variants_for_platform(platform)
+            
+            # Filter variants based on current tag filters
+            filtered_variants = [rom for rom in variants if self.rom_matches_tags(rom)]
+            
+            # Update the variant count in the game item
+            variant_count_text = f"{len(filtered_variants)}/{len(variants)} variants" if len(filtered_variants) != len(variants) else f"{len(variants)} variants"
+            current_values = list(self.game_tree.item(game_item_id, 'values'))
+            current_values[2] = variant_count_text  # Update variant count column
+            self.game_tree.item(game_item_id, values=tuple(current_values))
+            
+            # Get current game selection
+            selection = self.state_manager.get_selection(game_key, platform)
+            
+            # Add filtered variants as children
+            for rom in filtered_variants:
+                # Check if this specific variant is queued
+                variant_queued = ""
+                if selection and selection.selected_rom_variant == rom.create_variant_key():
+                    variant_queued = "✓"
+                
+                # Get installation status from cache if available
+                cached_installed = rom.is_installed()
+                variant_installed = "✓" if cached_installed is True else ""
+                
+                # Format tags for this variant
+                rom_tags = ", ".join(sorted(rom.tags)) if rom.tags else ""
+                
+                # Determine visual styling for variant
+                variant_visual_tags = ['variant']
+                if variant_queued:
+                    variant_visual_tags.append('queued')
+                if cached_installed is True:
+                    variant_visual_tags.append('installed')
+                if variant_queued and cached_installed is True:
+                    variant_visual_tags.append('queued_installed')
+                
+                self.game_tree.insert(
+                    game_item_id,
+                    'end',
+                    text=rom.filename,
+                    values=(variant_queued, variant_installed, rom.size, rom_tags, 'variant', game.key, rom.create_variant_key()),
+                    tags=tuple(variant_visual_tags)
+                )
+        
+        except Exception as e:
+            logger.error(f"Error rebuilding variants for game {game_key}: {e}")
     
     def apply_visual_filters(self, visible_game_keys: Set[str]):
         """Apply visual filtering using tags and styling (backup method)"""
@@ -1544,8 +1615,12 @@ class GameLibraryGUI:
             if not self.game_tree.exists(item_id):
                 return None
                 
-            # Use cached installation status
-            has_installed = game.has_installed_variants(platform)
+            # Only check installation status for filtered variants (same logic as tree building)
+            variants = game.get_variants_for_platform(platform)
+            filtered_variants = [rom for rom in variants if self.rom_matches_tags(rom)]
+            
+            # Check if any of the visible/filtered variants are installed
+            has_installed = any(rom.is_installed() is True for rom in filtered_variants)
             installed_text = "✓" if has_installed else ""
             
             # Determine visual tags
@@ -1577,9 +1652,12 @@ class GameLibraryGUI:
             if not variant_key:
                 return None
             
-            # Find the ROM variant and use cached status
+            # Only look through filtered variants (same as tree building logic)
             variants = game.get_variants_for_platform(platform)
-            for rom in variants:
+            filtered_variants = [rom for rom in variants if self.rom_matches_tags(rom)]
+            
+            # Find the ROM variant and use cached status
+            for rom in filtered_variants:
                 if rom.create_variant_key() == variant_key:
                     is_installed = rom.is_installed()
                     if is_installed is None:

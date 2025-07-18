@@ -377,6 +377,10 @@ class EnhancedDownloadManager:
         # Process through pipeline with status updates
         logger.info(f"Processing {rom.filename} through tool pipeline ({len(pipeline)} steps)")
         
+        # Use temp directory for pipeline output, then queue for network copy
+        temp_output_dir = self.temp_dir / f"processed_{int(time.time())}"
+        temp_output_dir.mkdir(parents=True, exist_ok=True)
+        
         # Add callback to pipeline manager to get step-by-step updates
         def pipeline_progress_callback(step_name: str, step_index: int, total_steps: int):
             if progress_callback:
@@ -393,9 +397,33 @@ class EnhancedDownloadManager:
             rom_path=rom_file,
             platform=platform,
             pipeline_config=pipeline,
-            output_dir=target_dir,
+            output_dir=temp_output_dir,
             progress_callback=pipeline_progress_callback
         )
+        
+        # If processing succeeded, queue output files for network copy
+        if result.success and result.output_files:
+            logger.info(f"Pipeline processing complete, queuing {len(result.output_files)} files for network copy")
+            
+            # Queue each output file for copy to target directory
+            queued_files = []
+            for output_file in result.output_files:
+                final_file = target_dir / output_file.name
+                copy_item = CopyQueueItem(
+                    rom=rom,
+                    src_file=output_file,
+                    dst_file=final_file
+                )
+                self.copy_queue.put(copy_item)
+                self.pending_copies.add(rom.filename)
+                queued_files.append(final_file)
+                logger.debug(f"Queued for copy: {output_file} -> {final_file}")
+            
+            # Update result to reflect final destinations
+            result.output_files = queued_files
+            if result.metadata is None:
+                result.metadata = {}
+            result.metadata['queued_for_copy'] = True
         
         return result
     

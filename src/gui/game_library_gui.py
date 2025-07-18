@@ -555,16 +555,18 @@ class GameLibraryGUI:
         if self.state_manager.selections_dirty:
             self.state_manager.save_selections()
             
-            # Update all affected items
+            # Update all affected items in batch
             processed_games = set()
             for item in selections:
                 try:
                     game_key = self.game_tree.set(item, 'game_key')
-                    if game_key and game_key not in processed_games:
-                        self.update_game_tree_item(game_key, platform)
+                    if game_key:
                         processed_games.add(game_key)
                 except:
                     continue
+            
+            # Use batch update for better performance
+            self.update_game_tree_items_batch(processed_games, platform)
     
     def add_all_variants_to_queue(self):
         """Add all variants of selected games to queue"""

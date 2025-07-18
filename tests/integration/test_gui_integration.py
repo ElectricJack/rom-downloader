@@ -8,7 +8,11 @@ integrated into the GUI components.
 import unittest
 import sys
 import os
-sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
+
+# Add the project root to the path
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+src_path = os.path.join(project_root, 'src')
+sys.path.insert(0, src_path)
 
 from models.game_library import Game, ROM
 from filters.advanced_rom_filter import AdvancedRomFilter, FilterCriteria
@@ -296,8 +300,5 @@ class TestGameLibraryCompatibility(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    # Create the filters directory if it doesn't exist
-    os.makedirs('src/filters', exist_ok=True)
-    
     # Run the tests
     unittest.main(verbosity=2)

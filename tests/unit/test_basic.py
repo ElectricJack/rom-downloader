@@ -8,13 +8,15 @@ import sys
 from pathlib import Path
 
 # Add src directory to path
-sys.path.insert(0, str(Path(__file__).parent / "src"))
+project_root = Path(__file__).parent.parent.parent
+src_path = project_root / "src"
+sys.path.insert(0, str(src_path))
 
 def test_config():
     """Test configuration loading."""
     print("Testing configuration system...")
     try:
-        from config.config import ConfigManager
+        from config.enhanced_config_manager import EnhancedConfigManager as ConfigManager
         config = ConfigManager()
         
         platforms = config.get_platforms()
@@ -85,7 +87,7 @@ def test_state_manager():
     """Test state persistence."""
     print("\nTesting state manager...")
     try:
-        from state.state_manager import StateManager
+        from state.distributed_state_manager import DistributedStateManager as StateManager
         
         state = StateManager()
         print("✓ State manager initialized")

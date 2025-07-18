@@ -48,6 +48,7 @@ class GameLibraryGUI:
         self.tag_variables = {}
         self.game_tree = None
         self.progress_bar = None
+        self.copy_progress_bar = None
         self.status_label = None
         
         # Data
@@ -685,13 +686,29 @@ class GameLibraryGUI:
         bottom_frame = ttk.Frame(parent)
         bottom_frame.pack(fill=tk.X, pady=(5, 0))
         
-        # Progress bar
-        self.progress_bar = ttk.Progressbar(bottom_frame, mode='determinate')
-        self.progress_bar.pack(fill=tk.X, pady=(0, 5))
+        # Download progress section
+        download_progress_frame = ttk.Frame(bottom_frame)
+        download_progress_frame.pack(fill=tk.X, pady=(0, 2))
+        
+        download_label = ttk.Label(download_progress_frame, text="Download Progress:")
+        download_label.pack(anchor=tk.W)
+        
+        self.progress_bar = ttk.Progressbar(download_progress_frame, mode='determinate')
+        self.progress_bar.pack(fill=tk.X, pady=(2, 0))
+        
+        # Copy progress section  
+        copy_progress_frame = ttk.Frame(bottom_frame)
+        copy_progress_frame.pack(fill=tk.X, pady=(0, 5))
+        
+        copy_label = ttk.Label(copy_progress_frame, text="Network Copy Progress:")
+        copy_label.pack(anchor=tk.W)
+        
+        self.copy_progress_bar = ttk.Progressbar(copy_progress_frame, mode='determinate')
+        self.copy_progress_bar.pack(fill=tk.X, pady=(2, 0))
         
         # Status label
         self.status_label = ttk.Label(bottom_frame, text="Ready")
-        self.status_label.pack(anchor=tk.W)
+        self.status_label.pack(anchor=tk.W, pady=(5, 0))
     
     def setup_menu_bar(self):
         """Set up the menu bar"""
@@ -2292,22 +2309,25 @@ class GameLibraryGUI:
     
     def _update_copy_progress(self, rom: ROM, progress: DownloadProgress):
         """Update network copy progress in UI (separate from download progress)"""
-        # For now, use the same progress bar but with different status message
-        self.progress_bar['value'] = progress.percentage
+        # Use the dedicated copy progress bar
+        self.copy_progress_bar['value'] = progress.percentage
         self.update_status(f"Copying {rom.filename} - {progress.percentage:.1f}% ({progress.speed_formatted})")
     
     def _update_copy_completion(self, rom: ROM, result: DownloadResult):
         """Update copy completion in UI"""
         if result.success:
+            self.copy_progress_bar['value'] = 100  # Show completion briefly
             self.update_status(f"Copied to network: {rom.filename}")
             # Refresh display to update installed status after copy completes
             self.refresh_game_list()
         else:
+            self.copy_progress_bar['value'] = 0  # Reset on failure
             self.update_status(f"Copy failed: {rom.filename} - {result.error_message}")
     
     def _download_complete(self, successful: int, total: int):
         """Handle download completion"""
         self.progress_bar['value'] = 0
+        self.copy_progress_bar['value'] = 0
         self.update_status(f"Download complete: {successful}/{total} successful")
         messagebox.showinfo("Download Complete", f"Downloaded {successful} out of {total} ROMs")
         

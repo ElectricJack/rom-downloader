@@ -1282,14 +1282,7 @@ class GameLibraryGUI:
         
         # Use existing ROM cache for fast lookup if available
         if self.existing_roms:
-            # Normalize the ROM filename for comparison (same logic as scan_existing_roms)
-            # Remove last extension first, then normalize
-            stem = rom.filename
-            if '.' in stem:
-                stem = '.'.join(stem.split('.')[:-1])  # Remove last extension
-            
-            normalized_name = self.rom_filter._normalize_name(stem)
-            result = normalized_name in self.existing_roms
+            result = self._precise_rom_match(rom.filename, self.existing_roms)
             
             # Cache the result for future use
             rom.set_installed(result)
@@ -1308,6 +1301,67 @@ class GameLibraryGUI:
         # Cache the result for future use
         rom.set_installed(result)
         return result
+    
+    def _precise_rom_match(self, rom_filename: str, existing_roms: set) -> bool:
+        """
+        Perform precise ROM matching using multiple strategies to avoid false positives.
+        
+        Args:
+            rom_filename: The ROM filename to check (e.g., "007 - Everything or Nothing (Japan).zip")
+            existing_roms: Set of existing ROM stems (case-insensitive, no extensions)
+        
+        Returns:
+            True if the ROM is found, False otherwise
+        """
+        # Get the stem (filename without extension)
+        stem = rom_filename
+        if '.' in stem:
+            stem = '.'.join(stem.split('.')[:-1])
+        
+        # Strategy 1: Exact match (case-insensitive)
+        precise_name = stem.lower().strip()
+        if precise_name in existing_roms:
+            return True
+        
+        # Strategy 2: Try common variations - remove extra spaces, normalize punctuation
+        # But preserve regional information!
+        normalized_basic = self._basic_normalize_preserving_regions(stem)
+        if normalized_basic in existing_roms:
+            return True
+        
+        # Strategy 3: Check if any existing ROM matches this one with different extension
+        # This handles cases like .zip vs .rvz for the same game
+        for existing_rom in existing_roms:
+            if self._are_same_rom_different_format(normalized_basic, existing_rom):
+                return True
+        
+        return False
+    
+    def _basic_normalize_preserving_regions(self, name: str) -> str:
+        """
+        Normalize ROM name while preserving regional and language information.
+        This is less aggressive than the original _normalize_name().
+        """
+        import re
+        
+        # Convert to lowercase
+        normalized = name.lower().strip()
+        
+        # Normalize spaces and punctuation, but preserve regional info
+        normalized = re.sub(r'\s+', ' ', normalized)  # Multiple spaces to single
+        normalized = re.sub(r'[_\-]+', ' ', normalized)  # Underscores/dashes to spaces
+        normalized = normalized.strip()
+        
+        return normalized
+    
+    def _are_same_rom_different_format(self, rom1: str, rom2: str) -> bool:
+        """
+        Check if two ROM names represent the same game but in different formats.
+        This is a very conservative check to avoid false positives.
+        """
+        # Only consider them the same if they're very similar
+        # This is intentionally strict to avoid false matches
+        return rom1 == rom2
     
     def check_installed_roms(self):
         """Scan target directory for installed ROMs and refresh display"""
@@ -1519,17 +1573,12 @@ class GameLibraryGUI:
             # Clear existing cache for this platform
             game.clear_installation_cache_for_platform(platform)
             
-            # Update cache for all variants
+            # Update cache for all variants using precise matching
             for rom in game.get_variants_for_platform(platform):
                 total_roms += 1
                 
-                # Normalize ROM filename for comparison (same logic as existing)
-                stem = rom.filename
-                if '.' in stem:
-                    stem = '.'.join(stem.split('.')[:-1])  # Remove last extension
-                
-                normalized_name = self.rom_filter._normalize_name(stem)
-                is_installed = normalized_name in self.existing_roms
+                # Use the new precise matching logic
+                is_installed = self._precise_rom_match(rom.filename, self.existing_roms)
                 
                 # Cache the result
                 rom.set_installed(is_installed)

@@ -287,13 +287,15 @@ class RomFilter:
                 
                 if has_rom_extension and not entry_name.startswith('.'):
                     file_count += 1
-                    # Normalize the filename for comparison (remove extension)
+                    # Get filename without extension for precise matching
                     stem = entry_name
                     if '.' in stem:
                         stem = '.'.join(stem.split('.')[:-1])  # Remove last extension
                     
-                    normalized_name = self._normalize_name(stem)
-                    existing_roms.add(normalized_name)
+                    # Store the original stem (case-insensitive) for precise matching
+                    # Don't use the over-normalized version that strips regional information
+                    precise_name = stem.lower().strip()
+                    existing_roms.add(precise_name)
                     
                     if len(existing_roms) <= 5:  # Log first 5 existing ROMs
                         logger.info(f"Found existing ROM: {entry_name}")

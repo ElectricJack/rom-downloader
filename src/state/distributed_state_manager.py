@@ -156,21 +156,37 @@ class DistributedStateManager:
     
     def load_platform_library(self, platform: str) -> bool:
         """Load game library for a specific platform"""
+        import time
+        start_time = time.time()
+        
         try:
             platform_file = self.platforms_dir / f"{platform}.json"
             
             if platform_file.exists():
+                logger.info(f"Loading platform file: {platform_file}")
+                
+                # Check file size
+                file_size = platform_file.stat().st_size
+                logger.info(f"Platform file size: {file_size / (1024*1024):.1f} MB")
+                
+                read_start = time.time()
                 with open(platform_file, 'r') as f:
                     data = json.load(f)
+                read_time = time.time() - read_start
+                logger.info(f"JSON file read took {read_time:.2f}s")
                 
                 # Deserialize platform library
+                deserialize_start = time.time()
                 library = self._deserialize_platform_library(data)
+                deserialize_time = time.time() - deserialize_start
+                logger.info(f"Deserialization took {deserialize_time:.2f}s")
                 
                 self.current_platform = platform
                 self.platform_library = library
                 self.platform_dirty = False
                 
-                logger.info(f"Loaded platform {platform}: {len(library.games)} games")
+                total_time = time.time() - start_time
+                logger.info(f"Loaded platform {platform}: {len(library.games)} games in {total_time:.2f}s")
                 return True
             else:
                 # Create empty library for new platform
@@ -316,10 +332,25 @@ class DistributedStateManager:
     
     def get_games_for_platform(self, platform: str) -> List[Game]:
         """Get all games available for a specific platform"""
+        import time
+        start_time = time.time()
+        
         if platform != self.current_platform:
+            logger.info(f"Loading different platform: {platform} (current: {self.current_platform})")
             # Load the platform if it's different
+            save_start = time.time()
             self.save_if_dirty()  # Save current platform first
+            save_time = time.time() - save_start
+            logger.info(f"save_if_dirty() took {save_time:.2f}s")
+            
+            load_start = time.time()
             self.load_platform_library(platform)
+            load_time = time.time() - load_start
+            logger.info(f"load_platform_library() took {load_time:.2f}s")
+        
+        result_count = len(self.platform_library.games) if self.platform_library else 0
+        total_time = time.time() - start_time
+        logger.info(f"get_games_for_platform({platform}) took {total_time:.2f}s, returning {result_count} games")
         
         if self.platform_library:
             return list(self.platform_library.games.values())

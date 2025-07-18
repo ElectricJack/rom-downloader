@@ -2250,9 +2250,16 @@ class GameLibraryGUI:
             def completion_callback(rom: ROM, result: DownloadResult):
                 self._safe_gui_update(lambda: self._update_download_completion(rom, result))
             
-            # Start download
+            def copy_progress_callback(rom: ROM, progress: DownloadProgress):
+                self._safe_gui_update(lambda: self._update_copy_progress(rom, progress))
+            
+            def copy_completion_callback(rom: ROM, result: DownloadResult):
+                self._safe_gui_update(lambda: self._update_copy_completion(rom, result))
+            
+            # Start download with separate copy callbacks
             results = self.download_manager.download_roms(
-                roms, platform, progress_callback, completion_callback
+                roms, platform, progress_callback, completion_callback,
+                copy_progress_callback, copy_completion_callback
             )
             
             # Show results
@@ -2274,10 +2281,24 @@ class GameLibraryGUI:
         """Update download completion in UI"""
         if result.success:
             self.update_status(f"Downloaded: {rom.filename}")
-            # Refresh display to update installed status
-            self.refresh_game_list()
+            # Note: Don't refresh here as copy is still in progress
         else:
             self.update_status(f"Failed: {rom.filename} - {result.error_message}")
+    
+    def _update_copy_progress(self, rom: ROM, progress: DownloadProgress):
+        """Update network copy progress in UI (separate from download progress)"""
+        # For now, use the same progress bar but with different status message
+        self.progress_bar['value'] = progress.percentage
+        self.update_status(f"Copying {rom.filename} - {progress.percentage:.1f}% ({progress.speed_formatted})")
+    
+    def _update_copy_completion(self, rom: ROM, result: DownloadResult):
+        """Update copy completion in UI"""
+        if result.success:
+            self.update_status(f"Copied to network: {rom.filename}")
+            # Refresh display to update installed status after copy completes
+            self.refresh_game_list()
+        else:
+            self.update_status(f"Copy failed: {rom.filename} - {result.error_message}")
     
     def _download_complete(self, successful: int, total: int):
         """Handle download completion"""

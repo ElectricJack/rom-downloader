@@ -391,7 +391,7 @@ class EnhancedDownloadManager:
                     if progress_callback and file_size > 0:
                         progress = DownloadProgress(
                             rom=rom,
-                            bytes_downloaded=copied_bytes,
+                            current_bytes=copied_bytes,
                             total_bytes=file_size,
                             operation="copying"
                         )
@@ -412,7 +412,7 @@ class EnhancedDownloadManager:
             if progress_callback:
                 progress = DownloadProgress(
                     rom=rom,
-                    bytes_downloaded=file_size,
+                    current_bytes=file_size,
                     total_bytes=file_size,
                     operation="copying"
                 )

@@ -593,70 +593,23 @@ class GameLibraryGUI:
         self.remove_from_queue()
     
     def select_all_games(self):
-        """Add all visible games to download queue (batched for performance)"""
-        platform = self.current_platform.get()
-        if not platform:
-            return
-        
-        # Get all game items from the tree
-        game_items = []
+        """Select all visible items in the tree (highlight all rows)"""
+        # Get all items from the tree (games and variants)
+        all_items = []
         for item_id in self.game_tree.get_children():
-            item_type = self.game_tree.set(item_id, 'item_type')
-            if item_type == 'game':
-                game_key = self.game_tree.set(item_id, 'game_key')
-                if game_key:
-                    game_items.append(game_key)
+            all_items.append(item_id)
+            # Also add child variants
+            for child_id in self.game_tree.get_children(item_id):
+                all_items.append(child_id)
         
-        if not game_items:
-            return
-        
-        # Batch process all games
-        modified_games = set()
-        for game_key in game_items:
-            if self.add_game_to_queue_batch(game_key, platform):
-                modified_games.add(game_key)
-        
-        # Save once after all operations
-        if self.state_manager.selections_dirty:
-            self.state_manager.save_selections()
-        
-        # Update all modified games in batch
-        self.update_game_tree_items_batch(modified_games, platform)
+        # Select all items in the tree
+        if all_items:
+            self.game_tree.selection_set(all_items)
     
     def select_none_games(self):
-        """Remove all games from download queue (batched for performance)"""
-        platform = self.current_platform.get()
-        if not platform:
-            return
-        
-        # Get all game items from the tree that are currently queued
-        queued_game_keys = set()
-        for item_id in self.game_tree.get_children():
-            item_type = self.game_tree.set(item_id, 'item_type')
-            if item_type == 'game':
-                game_key = self.game_tree.set(item_id, 'game_key')
-                if game_key:
-                    # Check if this game is queued
-                    selection = self.state_manager.get_selection(game_key, platform)
-                    if selection:
-                        queued_game_keys.add(game_key)
-        
-        if not queued_game_keys:
-            return
-        
-        # Batch remove all queued games
-        for game_key in queued_game_keys:
-            selection_key = f"{platform}:{game_key}"
-            if selection_key in self.state_manager.selections:
-                del self.state_manager.selections[selection_key]
-                self.state_manager.selections_dirty = True
-        
-        # Save once after all operations
-        if self.state_manager.selections_dirty:
-            self.state_manager.save_selections()
-        
-        # Update all affected games in batch
-        self.update_game_tree_items_batch(queued_game_keys, platform)
+        """Clear all selected items in the tree (remove highlight from all rows)"""
+        # Clear all tree selections
+        self.game_tree.selection_remove(self.game_tree.selection())
     
     def add_game_to_queue(self, game_key: str, platform: str):
         """Add a game to download queue (selects best variant)"""

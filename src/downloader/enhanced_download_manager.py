@@ -236,12 +236,9 @@ class EnhancedDownloadManager:
             processing_result = self._process_rom(downloaded_file, rom, platform, target_dir, progress_callback)
             processing_time = time.time() - processing_start
             
-            # Step 3: Clean up temp file if processing succeeded
-            if processing_result.success and downloaded_file.exists():
-                try:
-                    downloaded_file.unlink()
-                except:
-                    pass  # Don't fail if cleanup fails
+            # Step 3: Don't delete temp file here - let copy worker handle cleanup
+            # The copy worker will delete the temp file after successful copy
+            # This ensures the file exists when the copy worker processes it
             
             return DownloadResult(
                 rom=rom,
@@ -267,7 +264,13 @@ class EnhancedDownloadManager:
         """Download a ROM file to temporary directory"""
         
         # Generate temporary filename
-        temp_filename = f"{rom.filename}_{int(time.time())}"
+        # Generate temp filename preserving the extension
+        name_without_ext = rom.filename
+        extension = ""
+        if '.' in rom.filename:
+            name_without_ext, extension = rom.filename.rsplit('.', 1)
+            extension = f".{extension}"
+        temp_filename = f"{name_without_ext}_{int(time.time())}{extension}"
         temp_file = temp_dir / temp_filename
         
         try:
@@ -337,7 +340,7 @@ class EnhancedDownloadManager:
         
         if not pipeline:
             # No processing needed, queue file for background copy
-            final_file = target_dir / rom_file.name
+            final_file = target_dir / rom.filename
             try:
                 # Add to copy queue for background processing
                 copy_item = CopyQueueItem(

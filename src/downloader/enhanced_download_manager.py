@@ -6,6 +6,7 @@ import time
 import random
 import logging
 import requests
+import shutil
 from pathlib import Path
 from typing import List, Optional, Callable, Dict, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -308,7 +309,8 @@ class EnhancedDownloadManager:
             # No processing needed, just move file to target
             final_file = target_dir / rom_file.name
             try:
-                rom_file.rename(final_file)
+                # Use shutil.move for cross-filesystem compatibility
+                shutil.move(str(rom_file), str(final_file))
                 return ProcessingResult(
                     success=True,
                     output_files=[final_file],

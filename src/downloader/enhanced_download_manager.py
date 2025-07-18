@@ -365,23 +365,36 @@ class EnhancedDownloadManager:
                     error_message=f"Failed to queue file for copy: {e}"
                 )
         
-        # Update progress
+        # Update progress to show processing started
         if progress_callback:
-            # We need the ROM object, but we only have the file path
-            # For now, create a minimal progress update
             progress = DownloadProgress(
-                rom=ROM(filename=rom_file.name, url="", size="", file_type=""),
+                rom=rom,
                 operation="processing",
-                step="pipeline"
+                step="Starting tool pipeline"
             )
-            progress_callback(progress.rom, progress)
+            progress_callback(rom, progress)
         
-        # Process through pipeline
+        # Process through pipeline with status updates
+        logger.info(f"Processing {rom.filename} through tool pipeline ({len(pipeline)} steps)")
+        
+        # Add callback to pipeline manager to get step-by-step updates
+        def pipeline_progress_callback(step_name: str, step_index: int, total_steps: int):
+            if progress_callback:
+                progress = DownloadProgress(
+                    rom=rom,
+                    current_bytes=step_index,
+                    total_bytes=total_steps,
+                    operation="processing",
+                    step=f"Running {step_name}"
+                )
+                progress_callback(rom, progress)
+        
         result = self.pipeline_manager.process_rom(
             rom_path=rom_file,
             platform=platform,
             pipeline_config=pipeline,
-            output_dir=target_dir
+            output_dir=target_dir,
+            progress_callback=pipeline_progress_callback
         )
         
         return result

@@ -4,7 +4,7 @@ Tool pipeline manager for orchestrating ROM processing.
 
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Callable
 
 from tools.base import ToolHandler, ToolStep, ProcessingResult
 from tools.zip_extractor import ZipExtractorTool
@@ -76,7 +76,8 @@ class ToolPipelineManager:
     
     def process_rom(self, rom_path: Path, platform: str, 
                    pipeline_config: List[ToolStep], 
-                   output_dir: Path) -> ProcessingResult:
+                   output_dir: Path,
+                   progress_callback: Optional[Callable[[str, int, int], None]] = None) -> ProcessingResult:
         """Process a ROM through the configured tool pipeline"""
         
         # Validate pipeline first
@@ -96,6 +97,10 @@ class ToolPipelineManager:
         logger.info(f"Starting pipeline processing for {rom_path} on platform {platform}")
         
         for i, step in enumerate(pipeline_config):
+            # Update progress
+            if progress_callback:
+                progress_callback(f"{step.tool_id}", i, len(pipeline_config))
+                
             tool = self.get_tool(step.tool_id)
             if not tool:
                 return ProcessingResult(

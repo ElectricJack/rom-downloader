@@ -2310,11 +2310,27 @@ class GameLibraryGUI:
     
     def _update_download_progress(self, rom: ROM, progress: DownloadProgress):
         """Update download progress in UI"""
-        self.progress_bar['value'] = progress.percentage
-        self.update_status(f"Downloading {rom.filename} - {progress.percentage:.1f}% ({progress.speed_formatted})")
+        if progress.operation == "downloading":
+            self.progress_bar['value'] = progress.percentage
+            self.update_status(f"Downloading {rom.filename} - {progress.percentage:.1f}% ({progress.speed_formatted})")
+        elif progress.operation == "processing":
+            if progress.total_bytes > 0:
+                # Show pipeline step progress
+                step_percentage = (progress.current_bytes / progress.total_bytes) * 100
+                self.progress_bar['value'] = step_percentage
+                self.update_status(f"Processing {rom.filename} - {progress.step} (step {progress.current_bytes + 1}/{progress.total_bytes})")
+            else:
+                # Indeterminate progress for processing
+                self.progress_bar.configure(mode='indeterminate')
+                self.progress_bar.start()
+                self.update_status(f"Processing {rom.filename} - {progress.step}")
     
     def _update_download_completion(self, rom: ROM, result: DownloadResult):
         """Update download completion in UI"""
+        # Reset progress bar to determinate mode in case it was in indeterminate mode
+        self.progress_bar.stop()
+        self.progress_bar.configure(mode='determinate')
+        
         if result.success:
             self.update_status(f"Downloaded: {rom.filename}")
             # Note: Don't refresh here as copy is still in progress

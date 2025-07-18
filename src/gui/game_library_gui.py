@@ -822,25 +822,30 @@ class GameLibraryGUI:
         self.available_other_tags = categorized_tags.get('other', set())
         
         # Create tag group frames
-        current_row = 0
+        current_column = 0
+        
+        # Configure grid column weights for horizontal distribution
+        self.tag_groups_container.grid_columnconfigure(0, weight=1)
+        self.tag_groups_container.grid_columnconfigure(1, weight=1)
+        self.tag_groups_container.grid_columnconfigure(2, weight=1)
         
         # Language tags
         if categorized_tags.get('language'):
             self.language_group_frame = ttk.LabelFrame(self.tag_groups_container, text="Languages")
-            self.language_group_frame.grid(row=current_row, column=0, sticky=(tk.W, tk.E), padx=(0, 5), pady=2)
+            self.language_group_frame.grid(row=0, column=current_column, sticky=(tk.W, tk.E, tk.N), padx=(0, 5), pady=2)
             self.create_tag_buttons(self.language_group_frame, categorized_tags['language'])
-            current_row += 1
+            current_column += 1
         
         # Country/Region tags
         if categorized_tags.get('country'):
             self.country_group_frame = ttk.LabelFrame(self.tag_groups_container, text="Regions")
-            self.country_group_frame.grid(row=current_row, column=0, sticky=(tk.W, tk.E), padx=(0, 5), pady=2)
+            self.country_group_frame.grid(row=0, column=current_column, sticky=(tk.W, tk.E, tk.N), padx=(0, 5), pady=2)
             self.create_tag_buttons(self.country_group_frame, categorized_tags['country'])
-            current_row += 1
+            current_column += 1
         
         # Custom tag input (replaces Other group)
         if self.available_other_tags:
-            self.custom_tag_frame.grid(row=current_row, column=0, sticky=(tk.W, tk.E), padx=(0, 5), pady=2)
+            self.custom_tag_frame.grid(row=0, column=current_column, sticky=(tk.W, tk.E, tk.N), padx=(0, 5), pady=2)
             # Update the label to show count
             tag_count = len(self.available_other_tags)
             self.custom_tag_frame.configure(text=f"Additional Tags ({tag_count} available - type to filter)")

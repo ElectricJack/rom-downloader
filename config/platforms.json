@@ -1,8 +1,7 @@
 {
   "settings": {
     "network_drive_path": "//BATOCERA/share/roms",
-    "target_directory": "/mnt/batocera/roms",
-    "temp_download_path": "./temp_downloads",
+    "target_directory": "//BATOCERA/share/roms",
     "download_delay_min": 2,
     "download_delay_max": 5,
     "preferred_regions": ["USA", "US", "En", "English"],
@@ -108,7 +107,28 @@
       "target_folder": "dreamcast",
       "file_extensions": [".cdi", ".gdi", ".chd", ".zip", ".7z"],
       "file_pattern": ".*\\.(cdi|gdi|chd|zip|7z)$",
-      "extract_archives": true
+      "extract_archives": true,
+      "tool_pipeline": [
+        {
+          "tool_id": "zip_extractor",
+          "parameters": {
+            "remove_original": true
+          },
+          "conditions": {
+            "file_types": [".zip", ".7z"]
+          }
+        },
+        {
+          "tool_id": "chd_converter",
+          "parameters": {
+            "chdman_path": "tools/chdman.exe",
+            "remove_original": true
+          },
+          "conditions": {
+            "file_types": [".cue"]
+          }
+        }
+      ]
     },
     "Saturn": {
       "name": "Sega Saturn",
@@ -120,7 +140,7 @@
     },
     "SegaCD": {
       "name": "Sega CD / Mega CD",
-      "url": "https://myrient.erista.me/files/Redump/Sega%20-%20Mega%20CD%20-%20Sega%20CD/",
+      "url": "https://myrient.erista.me/files/Internet%20Archive/chadmaster/chd_segacd/CHD-SegaCD-NTSC/",
       "target_folder": "segacd",
       "file_extensions": [".bin", ".cue", ".chd", ".zip", ".7z"],
       "file_pattern": ".*\\.(bin|cue|chd|zip|7z)$",

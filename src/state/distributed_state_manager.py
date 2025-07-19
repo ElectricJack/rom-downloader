@@ -14,8 +14,11 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional, Any, Set
 from dataclasses import asdict
+import sys
+sys.path.append(str(Path(__file__).parent.parent))
 
 from src.models.game_library import GameLibrary, Game, ROM, UserSelection
+from utils.dirs import app_dirs
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +27,7 @@ class DistributedStateManager:
     """Manages persistent state with distributed files for better performance"""
     
     def __init__(self, state_dir: Path = None):
-        self.state_dir = state_dir or Path('state')
+        self.state_dir = state_dir or app_dirs.get_state_dir()
         self.platforms_dir = self.state_dir / 'platforms'
         self.selections_file = self.state_dir / 'selections.json'
         self.app_settings_file = self.state_dir / 'app_settings.json'

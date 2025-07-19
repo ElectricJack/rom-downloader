@@ -29,22 +29,17 @@ def setup_logging():
 
 def ensure_config_exists():
     """Ensure configuration file exists"""
-    config_file = Path('config/platforms.json')
+    # Config manager now handles creating config in appropriate OS directory
+    config_manager = EnhancedConfigManager()
     
-    if not config_file.exists():
+    if not config_manager.config_file.exists():
         print("No configuration file found. Creating default configuration...")
-        
-        # Create config directory
-        config_file.parent.mkdir(parents=True, exist_ok=True)
-        
-        # Create default configuration
-        config_manager = EnhancedConfigManager(config_file)
         
         if not config_manager.initialize_default_config():
             print("Failed to create default configuration")
             return False
         
-        print(f"Default configuration created at {config_file}")
+        print(f"Default configuration created at {config_manager.config_file}")
         print("You can edit this file to add more platforms or modify settings.")
     
     return True

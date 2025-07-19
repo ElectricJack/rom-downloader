@@ -1,87 +1,55 @@
 #!/usr/bin/env python3
 """
-Test runner for ROM Downloader components
+Master test runner for ROM Downloader - runs tests from project root
 """
 
 import sys
 import os
 import unittest
-from pathlib import Path
+import subprocess
 
-# Add src to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+def run_tests():
+    """Run all tests using the tests directory runner"""
+    tests_dir = os.path.join(os.path.dirname(__file__), 'tests')
+    
+    # Change to tests directory and run the test runner
+    try:
+        result = subprocess.run([
+            sys.executable, 'run_tests.py', 'all'
+        ], cwd=tests_dir, capture_output=False)
+        return result.returncode == 0
+    except Exception as e:
+        print(f"Error running tests: {e}")
+        return False
 
-def run_basic_tests():
-    """Run basic unit tests"""
-    print("Running basic unit tests...")
+def run_specific_test(test_file):
+    """Run a specific test file"""
+    project_root = os.path.dirname(__file__)
+    src_path = os.path.join(project_root, 'src')
     
-    loader = unittest.TestLoader()
-    suite = loader.loadTestsFromName('tests.test_basic_functionality')
+    # Add src to path
+    sys.path.insert(0, src_path)
     
-    runner = unittest.TextTestRunner(verbosity=2)
-    result = runner.run(suite)
-    
-    return result.wasSuccessful()
-
-def run_integration_tests():
-    """Run integration tests"""
-    print("Running integration tests...")
-    
-    loader = unittest.TestLoader()
-    suite = loader.loadTestsFromName('tests.test_integration')
-    
-    runner = unittest.TextTestRunner(verbosity=2)
-    result = runner.run(suite)
-    
-    return result.wasSuccessful()
-
-def run_all_tests():
-    """Run all tests and return success status"""
-    print("Running all tests...")
-    
-    # Discover and run tests
-    loader = unittest.TestLoader()
-    suite = loader.discover('tests', pattern='test_*.py')
-    
-    runner = unittest.TextTestRunner(verbosity=2)
-    result = runner.run(suite)
-    
-    # Print summary
-    print(f"\n{'='*50}")
-    print(f"Tests run: {result.testsRun}")
-    print(f"Failures: {len(result.failures)}")
-    print(f"Errors: {len(result.errors)}")
-    
-    if result.failures:
-        print("\nFailures:")
-        for test, traceback in result.failures:
-            print(f"  {test}: {traceback}")
-    
-    if result.errors:
-        print("\nErrors:")
-        for test, traceback in result.errors:
-            print(f"  {test}: {traceback}")
-    
-    success = len(result.failures) == 0 and len(result.errors) == 0
-    print(f"\nResult: {'PASS' if success else 'FAIL'}")
-    
-    return success
+    # Run the specific test
+    try:
+        if test_file.startswith('tests/'):
+            test_path = os.path.join(project_root, test_file)
+        else:
+            test_path = os.path.join(project_root, 'tests', test_file)
+            
+        result = subprocess.run([sys.executable, test_path], capture_output=False)
+        return result.returncode == 0
+    except Exception as e:
+        print(f"Error running test {test_file}: {e}")
+        return False
 
 if __name__ == '__main__':
-    # Parse command line arguments
     if len(sys.argv) > 1:
-        test_type = sys.argv[1]
-        if test_type == "basic":
-            success = run_basic_tests()
-        elif test_type == "integration":
-            success = run_integration_tests()
-        elif test_type == "all":
-            success = run_all_tests()
-        else:
-            print(f"Unknown test type: {test_type}")
-            print("Usage: python run_tests.py [basic|integration|all]")
-            sys.exit(1)
+        # Run specific test file
+        test_file = sys.argv[1]
+        success = run_specific_test(test_file)
     else:
-        success = run_all_tests()
+        # Run all tests
+        success = run_tests()
     
     sys.exit(0 if success else 1)

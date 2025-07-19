@@ -18,12 +18,36 @@ class ROM:
     tags: Set[str] = field(default_factory=set)
     platform: str = ""
     game_key: str = ""
+    clean_name: str = ""  # Cleaned filename for display
     _is_installed: Optional[bool] = field(default=None, init=False)  # Cache installation status
     
     def __post_init__(self):
         """Ensure tags is always a set"""
         if isinstance(self.tags, (list, tuple)):
             self.tags = set(self.tags)
+        
+        # Generate clean_name if not provided
+        if not self.clean_name:
+            self.clean_name = self._generate_clean_name()
+    
+    def _generate_clean_name(self) -> str:
+        """Generate a clean name from filename for display purposes"""
+        import re
+        
+        # Remove file extensions (all supported ROM and archive formats)
+        clean = re.sub(r'\.(rvz|zip|7z|iso|bin|cue|chd|gcm|nes|sfc|smc|gba|gbc|gb|nds|n64|z64|v64|vb|pce|a26|a52|a78|cdi|gdi|wux|wud)$', '', self.filename, flags=re.IGNORECASE)
+        
+        # Remove common prefixes/suffixes but keep region info
+        clean = re.sub(r'^\[.*?\]\s*', '', clean)  # Remove [tags] at start
+        # Remove non-region parenthetical info (keep region patterns)
+        region_patterns = [r'\(USA?\)', r'\(US\)', r'\(Europe?\)', r'\(Japan\)', r'\(World\)', r'\(En\)', r'\(English\)']
+        has_region = any(re.search(pattern, clean, re.IGNORECASE) for pattern in region_patterns)
+        
+        if not has_region:
+            # Only remove parentheses if no region found
+            clean = re.sub(r'\s*\(.*?\)$', '', clean)
+        
+        return clean.strip()
     
     @property
     def size_bytes(self) -> int:

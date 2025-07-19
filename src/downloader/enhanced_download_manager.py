@@ -123,7 +123,7 @@ class EnhancedDownloadManager:
         self.pending_copies = set()  # Track pending copies by ROM filename
         self.completed_installations = set()  # Track completed installations
         
-        logger.info(f"Enhanced download manager initialized with temp dir: {self.temp_dir}")
+        # Enhanced download manager initialized
     
     def download_roms(self, roms: List[ROM], platform: str,
                      progress_callback: Optional[Callable[[ROM, DownloadProgress], None]] = None,
@@ -132,7 +132,7 @@ class EnhancedDownloadManager:
                      copy_completion_callback: Optional[Callable[[ROM, DownloadResult], None]] = None) -> List[DownloadResult]:
         """Download multiple ROMs with tool pipeline processing"""
         
-        logger.info(f"Starting download of {len(roms)} ROMs for platform {platform}")
+        # Starting download session
         
         results = []
         self.cancelled = False
@@ -146,7 +146,7 @@ class EnhancedDownloadManager:
             self.copy_thread_running = True
             self.copy_thread = threading.Thread(target=self._copy_worker, daemon=True)
             self.copy_thread.start()
-            logger.info("Copy worker thread started")
+            # Copy worker thread started
         
         # Get target directory
         target_dir = self.config.get_target_directory(platform)
@@ -182,7 +182,7 @@ class EnhancedDownloadManager:
                         completion_callback(rom, result)
                     
                     if result.success:
-                        logger.info(f"Successfully downloaded and processed: {rom.filename}")
+                        pass  # Successfully downloaded and processed
                     else:
                         logger.error(f"Failed to download {rom.filename}: {result.error_message}")
                         
@@ -203,7 +203,7 @@ class EnhancedDownloadManager:
                     delay = random.uniform(*self.delay_range)
                     time.sleep(delay)
         
-        logger.info(f"Download batch completed: {sum(1 for r in results if r.success)}/{len(results)} successful")
+        # Download batch completed
         return results
     
     def _download_and_process_rom(self, rom: ROM, platform: str, target_dir: Path,
@@ -352,7 +352,7 @@ class EnhancedDownloadManager:
                 )
                 self.copy_queue.put(copy_item)
                 self.pending_copies.add(rom.filename)
-                logger.debug(f"Queued for copy: {rom.filename}")
+                # Queued for copy
                 
                 return ProcessingResult(
                     success=True,
@@ -403,7 +403,7 @@ class EnhancedDownloadManager:
         
         # If processing succeeded, queue output files for network copy
         if result.success and result.output_files:
-            logger.info(f"Pipeline processing complete, queuing {len(result.output_files)} files for network copy")
+            # Pipeline processing complete
             
             # Queue each output file for copy to target directory
             queued_files = []
@@ -417,7 +417,7 @@ class EnhancedDownloadManager:
                 self.copy_queue.put(copy_item)
                 self.pending_copies.add(rom.filename)
                 queued_files.append(final_file)
-                logger.debug(f"Queued for copy: {output_file} -> {final_file}")
+                # Queued for copy
             
             # Update result to reflect final destinations
             result.output_files = queued_files
@@ -428,9 +428,30 @@ class EnhancedDownloadManager:
         return result
     
     def cancel_downloads(self):
-        """Cancel all active downloads"""
+        """Cancel all active downloads and copies"""
         self.cancelled = True
-        logger.info("Download cancellation requested")
+        logger.info("Cancelling all downloads and copies...")
+        
+        # Clear pending copies from queue
+        queue_cleared = 0
+        try:
+            while not self.copy_queue.empty():
+                try:
+                    item = self.copy_queue.get_nowait()
+                    self.copy_queue.task_done()
+                    queue_cleared += 1
+                except:
+                    break
+        except Exception as e:
+            logger.error(f"Error clearing copy queue: {e}")
+        
+        if queue_cleared > 0:
+            logger.info(f"Cleared {queue_cleared} pending copies from queue")
+        
+        # Clear pending copies tracking
+        self.pending_copies.clear()
+        
+        # Download cancellation requested
     
     def get_download_stats(self) -> Dict[str, Any]:
         """Get download statistics"""
@@ -472,15 +493,20 @@ class EnhancedDownloadManager:
     
     def _copy_worker(self):
         """Background worker thread for processing network copy queue"""
-        logger.info("Copy worker thread started")
+        # Copy worker thread started
         
-        while self.copy_thread_running:
+        while self.copy_thread_running and not self.cancelled:
             try:
                 # Get next item from queue (with timeout to allow thread shutdown)
                 item = self.copy_queue.get(timeout=1.0)
                 
+                # Check for cancellation before starting copy
+                if self.cancelled:
+                    self.copy_queue.task_done()
+                    break
+                
                 self.current_copy_item = item
-                logger.info(f"Starting network copy: {item.rom.filename}")
+                # Starting network copy
                 
                 # Perform the copy with progress tracking
                 success = self._perform_network_copy(item)
@@ -522,7 +548,7 @@ class EnhancedDownloadManager:
                     self.copy_queue.task_done()
                     self.current_copy_item = None
         
-        logger.info("Copy worker thread stopped")
+        # Copy worker thread stopped
     
     def _perform_network_copy(self, item: CopyQueueItem) -> bool:
         """Perform network copy with progress tracking"""
@@ -536,36 +562,63 @@ class EnhancedDownloadManager:
             item.dst_file.parent.mkdir(parents=True, exist_ok=True)
             
             # Perform the copy with progress tracking
-            with open(item.src_file, 'rb') as src, open(item.dst_file, 'wb') as dst:
-                while True:
-                    buffer = src.read(buffer_size)
-                    if not buffer:
-                        break
-                    
-                    dst.write(buffer)
-                    dst.flush()  # Force write to disk to get accurate progress
-                    copied_bytes += len(buffer)
-                    
-                    # Update progress callback with timing info
-                    if self.copy_progress_callback and file_size > 0:
-                        elapsed = time.time() - start_time
-                        speed_bps = int(copied_bytes / elapsed) if elapsed > 0 else 0
-                        remaining_bytes = file_size - copied_bytes
-                        eta_seconds = int(remaining_bytes / speed_bps) if speed_bps > 0 else 0
+            partial_file_created = False
+            try:
+                with open(item.src_file, 'rb') as src, open(item.dst_file, 'wb') as dst:
+                    partial_file_created = True
+                    while True:
+                        # Check for cancellation
+                        if self.cancelled:
+                            break
+                            
+                        buffer = src.read(buffer_size)
+                        if not buffer:
+                            break
                         
-                        progress = DownloadProgress(
-                            rom=item.rom,
-                            current_bytes=copied_bytes,
-                            total_bytes=file_size,
-                            speed_bps=speed_bps,
-                            eta_seconds=eta_seconds,
-                            operation="copying"
-                        )
-                        self.copy_progress_callback(item.rom, progress)
-                    
-                    # Small delay for large files to allow UI updates and prevent UI freezing
-                    if copied_bytes % (buffer_size * 5) == 0:  # Every 320KB
-                        time.sleep(0.01)  # 10ms delay for smoother UI updates
+                        dst.write(buffer)
+                        dst.flush()  # Force write to disk to get accurate progress
+                        copied_bytes += len(buffer)
+                        
+                        # Update progress callback with timing info
+                        if self.copy_progress_callback and file_size > 0:
+                            elapsed = time.time() - start_time
+                            speed_bps = int(copied_bytes / elapsed) if elapsed > 0 else 0
+                            remaining_bytes = file_size - copied_bytes
+                            eta_seconds = int(remaining_bytes / speed_bps) if speed_bps > 0 else 0
+                            
+                            progress = DownloadProgress(
+                                rom=item.rom,
+                                current_bytes=copied_bytes,
+                                total_bytes=file_size,
+                                speed_bps=speed_bps,
+                                eta_seconds=eta_seconds,
+                                operation="copying"
+                            )
+                            self.copy_progress_callback(item.rom, progress)
+                        
+                        # Small delay for large files to allow UI updates and prevent UI freezing
+                        if copied_bytes % (buffer_size * 5) == 0:  # Every 320KB
+                            time.sleep(0.01)  # 10ms delay for smoother UI updates
+                
+                # If cancelled during copy, clean up partial file
+                if self.cancelled and partial_file_created:
+                    try:
+                        if item.dst_file.exists():
+                            item.dst_file.unlink()
+                            logger.info(f"Cleaned up partial file: {item.dst_file}")
+                    except Exception as cleanup_error:
+                        logger.error(f"Error cleaning up partial file {item.dst_file}: {cleanup_error}")
+                    return False
+                
+            except Exception as e:
+                # Clean up partial file on error
+                if partial_file_created and item.dst_file.exists():
+                    try:
+                        item.dst_file.unlink()
+                        logger.info(f"Cleaned up partial file after error: {item.dst_file}")
+                    except Exception as cleanup_error:
+                        logger.error(f"Error cleaning up partial file after error {item.dst_file}: {cleanup_error}")
+                raise e
             
             # Copy file metadata (permissions, timestamps)
             try:

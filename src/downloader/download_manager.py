@@ -23,6 +23,7 @@ import sys
 sys.path.append(str(Path(__file__).parent.parent))
 from scraper.web_scraper import RomInfo
 from network.network_handler import NetworkHandler
+from utils.dirs import app_dirs
 
 logger = logging.getLogger(__name__)
 
@@ -78,17 +79,18 @@ class DownloadProgress:
 class DownloadManager:
     """Manages ROM file downloads with rate limiting and progress tracking."""
     
-    def __init__(self, temp_path: str = "./temp_downloads", 
+    def __init__(self, temp_path: str = None, 
                  delay_min: int = 2, delay_max: int = 5, config_manager=None):
         """Initialize the download manager.
         
         Args:
-            temp_path: Temporary directory for downloads.
+            temp_path: Temporary directory for downloads. Uses OS temp dir if None.
             delay_min: Minimum delay between downloads in seconds.
             delay_max: Maximum delay between downloads in seconds.
             config_manager: Configuration manager for platform settings.
         """
-        self.temp_path = Path(temp_path)
+        # Use OS-appropriate temp directory if not specified
+        self.temp_path = Path(temp_path) if temp_path else app_dirs.get_temp_dir()
         self.delay_min = delay_min
         self.delay_max = delay_max
         self.config_manager = config_manager
@@ -119,9 +121,9 @@ class DownloadManager:
     
     def _copy_worker(self):
         """Worker thread for processing network copy queue."""
-        logger.info("Copy worker thread started")
+        # Copy worker thread started
         
-        while self.copy_thread_running:
+        while self.copy_thread_running and not self.cancelled:
             try:
                 # Get next item from queue with timeout
                 try:
@@ -132,8 +134,13 @@ class DownloadManager:
                 if item is None:  # Shutdown signal
                     break
                 
+                # Check for cancellation before starting copy
+                if self.cancelled:
+                    self.copy_queue.task_done()
+                    break
+                
                 self.current_copy_item = item
-                logger.info(f"Starting network copy: {item.rom.clean_name}")
+                # Starting network copy
                 
                 # Perform the copy with progress tracking
                 success = self._perform_network_copy(item)
@@ -158,7 +165,7 @@ class DownloadManager:
                     self.copy_queue.task_done()
                     self.current_copy_item = None
         
-        logger.info("Copy worker thread stopped")
+        # Copy worker thread stopped
     
     def _perform_network_copy(self, item: CopyQueueItem) -> bool:
         """Perform network copy with progress tracking."""
@@ -175,21 +182,48 @@ class DownloadManager:
             copied_bytes = 0
             buffer_size = 64 * 1024  # 64KB buffer
             
-            with open(item.src_file, 'rb') as src_f, open(item.dst_file, 'wb') as dst_f:
-                while True:
-                    buffer = src_f.read(buffer_size)
-                    if not buffer:
-                        break
+            partial_file_created = False
+            try:
+                with open(item.src_file, 'rb') as src_f, open(item.dst_file, 'wb') as dst_f:
+                    partial_file_created = True
+                    while True:
+                        # Check for cancellation
+                        if self.cancelled:
+                            break
+                            
+                        buffer = src_f.read(buffer_size)
+                        if not buffer:
+                            break
+                        
+                        dst_f.write(buffer)
+                        copied_bytes += len(buffer)
+                        
+                        # Update progress
+                        copy_progress_callback(copied_bytes, file_size, item.src_file.name)
+                        
+                        # Small delay to allow progress updates to be processed
+                        if copied_bytes % (buffer_size * 10) == 0:  # Update every 640KB
+                            time.sleep(0.01)
+                
+                # If cancelled during copy, clean up partial file
+                if self.cancelled and partial_file_created:
+                    try:
+                        if item.dst_file.exists():
+                            item.dst_file.unlink()
+                            logger.info(f"Cleaned up partial file: {item.dst_file}")
+                    except Exception as cleanup_error:
+                        logger.error(f"Error cleaning up partial file {item.dst_file}: {cleanup_error}")
+                    return False
                     
-                    dst_f.write(buffer)
-                    copied_bytes += len(buffer)
-                    
-                    # Update progress
-                    copy_progress_callback(copied_bytes, file_size, item.src_file.name)
-                    
-                    # Small delay to allow progress updates to be processed
-                    if copied_bytes % (buffer_size * 10) == 0:  # Update every 640KB
-                        time.sleep(0.01)
+            except Exception as e:
+                # Clean up partial file on error
+                if partial_file_created and item.dst_file.exists():
+                    try:
+                        item.dst_file.unlink()
+                        logger.info(f"Cleaned up partial file after error: {item.dst_file}")
+                    except Exception as cleanup_error:
+                        logger.error(f"Error cleaning up partial file after error {item.dst_file}: {cleanup_error}")
+                raise e
             
             # Copy file metadata
             shutil.copystat(item.src_file, item.dst_file)
@@ -237,25 +271,25 @@ class DownloadManager:
             self.copy_thread.start()
         
         try:
-            logger.info(f"Starting download of {len(roms)} ROMs to {target_directory}")
+            # Starting download session
             
             # Ensure target directory exists
             target_directory.mkdir(parents=True, exist_ok=True)
             
             for i, rom in enumerate(roms):
                 if self.cancelled:
-                    logger.info("Download cancelled by user")
+                    # Download cancelled by user
                     break
                 
                 # Check if copy queue is full - if so, wait before downloading next ROM
                 while self.copy_queue.qsize() >= self.max_queue_size and not self.cancelled:
-                    logger.info(f"Copy queue full ({self.copy_queue.qsize()}), waiting before next download...")
+                    # Copy queue full, waiting
                     time.sleep(1)
                 
                 if self.cancelled:
                     break
                 
-                logger.info(f"Downloading ROM {i+1}/{len(roms)}: {rom.clean_name}")
+                # Downloading ROM
                 self.current_download = rom
                 
                 success, error_message, final_file_type = self._download_single_rom(
@@ -269,10 +303,10 @@ class DownloadManager:
                 # Add delay between downloads (except for the last one)
                 if i < len(roms) - 1 and not self.cancelled:
                     delay = random.randint(self.delay_min, self.delay_max)
-                    logger.info(f"Waiting {delay} seconds before next download...")
+                    # Waiting between downloads
                     time.sleep(delay)
             
-            logger.info("Download session completed")
+            # Download session completed
             
             # Wait for all queued copies to complete
             logger.info("Waiting for network copies to complete...")
@@ -502,7 +536,7 @@ class DownloadManager:
                         # Queue for network copying
                         copy_item = CopyQueueItem(rom, src_file, dst_file, platform_name)
                         self.copy_queue.put(copy_item)
-                        logger.info(f"Queued for network copy: {dst_file.name}")
+                        # Queued for network copy
                         return {'success': True, 'error': None}
                         
                     else:
@@ -547,7 +581,7 @@ class DownloadManager:
             if not all_success:
                 return False, "; ".join(error_messages), final_file_type
             
-            logger.info(f"Successfully downloaded: {rom.clean_name}")
+            # Successfully downloaded
             return True, "", final_file_type
             
         except requests.RequestException as e:
@@ -791,7 +825,7 @@ class DownloadManager:
                         # Only log if we've reached the next 10% milestone
                         if progress_percent >= last_logged_progress + 10:
                             last_logged_progress = (progress_percent // 10) * 10  # Round down to nearest 10%
-                            logger.info(f"CHD conversion: {last_logged_progress}% complete (elapsed: {elapsed:.1f}s, output size: {chd_size} bytes)")
+                            # CHD conversion progress milestone
                         
                         # Update progress callback regardless of logging
                         if progress_callback and rom:
@@ -910,8 +944,25 @@ class DownloadManager:
     
     def cancel_download(self) -> None:
         """Cancel the current download session."""
-        logger.info("Cancelling download session...")
+        # Cancelling download session
         self.cancelled = True
+        logger.info("Cancelling all downloads and copies...")
+        
+        # Clear pending copies from queue
+        queue_cleared = 0
+        try:
+            while not self.copy_queue.empty():
+                try:
+                    item = self.copy_queue.get_nowait()
+                    if item is not None:  # Don't count the None shutdown signal
+                        queue_cleared += 1
+                except:
+                    break
+        except Exception as e:
+            logger.error(f"Error clearing copy queue: {e}")
+        
+        if queue_cleared > 0:
+            logger.info(f"Cleared {queue_cleared} pending copies from queue")
         
         # Stop copy worker thread
         if self.copy_thread_running:

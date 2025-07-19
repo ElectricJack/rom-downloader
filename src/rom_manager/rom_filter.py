@@ -78,44 +78,29 @@ class RomFilter:
         # Convert to lowercase
         normalized = name.lower()
         
-        # Remove region codes and quality indicators entirely for comparison
-        region_and_quality_patterns = [
-            # Region codes (remove completely for comparison)
-            r'\(u\)',
-            r'\(us\)', 
-            r'\(usa\)',
-            r'\(e\)',
-            r'\(eu\)',
-            r'\(eur\)',
-            r'\(europe\)',
-            r'\(j\)',
-            r'\(jp\)',
-            r'\(japan\)',
-            r'\(ju\)',
-            r'\(ue\)',
-            r'\(japan,?\s*usa\)',
-            r'\(usa,?\s*europe\)',
-            r'\(world\)',
-            r'\(en\)',
-            r'\(english\)',
-            # Quality indicators
-            r'\[!\]',
-            r'\[a\d*\]',  # Alternate versions
-            r'\[b\d*\]',  # Bad dumps
-            r'\[f\d*\]',  # Fixed versions
-            r'\[h\d*\]',  # Hacked versions
-            r'\[o\d*\]',  # Overdumps
-            r'\[t\d*\]',  # Trained versions
-            r'\[tr\]',    # Translated
-            # DS-specific patterns
-            r'\(m\d+\)',  # DS dump versions like (M5), (M6)
-        ]
+        # Remove file extensions to ensure consistent comparison
+        # Handle common ROM extensions
+        rom_extensions = ['.zip', '.7z', '.rar', '.chd', '.cdi', '.gdi', '.bin', '.cue', '.iso', 
+                         '.rvz', '.wux', '.wud', '.gba', '.gbc', '.gb', '.nes', '.sfc', '.smc', 
+                         '.n64', '.z64', '.v64', '.nds', '.vb', '.a26', '.a52', '.a78', '.pce']
         
-        for pattern in region_and_quality_patterns:
-            normalized = re.sub(pattern, '', normalized, flags=re.IGNORECASE)
+        for ext in rom_extensions:
+            if normalized.endswith(ext):
+                normalized = normalized[:-len(ext)]
+                break
+        
+        # Remove everything in parentheses and brackets (regions, languages, quality indicators, etc.)
+        normalized = re.sub(r'\([^)]*\)', '', normalized)  # Remove (anything)
+        normalized = re.sub(r'\[[^\]]*\]', '', normalized)  # Remove [anything]
         
         # Remove numeric prefixes (common in GBA/DS collections: "0001 - Game Name" or "0001 Game Name")
         normalized = re.sub(r'^\d{3,4}\s*-?\s*', '', normalized)
+        
+        # Normalize apostrophe possessives before removing special chars
+        normalized = re.sub(r"(\w)'s\b", r'\1s', normalized)  # "hawk's" -> "hawks"
+        
+        # Handle common name variations (specific game title fixes)
+        normalized = re.sub(r'\btony hawk\b', 'tony hawks', normalized)  # "tony hawk" -> "tony hawks"
         
         # Remove common variations
         normalized = re.sub(r'\s*[-_]\s*', ' ', normalized)  # Normalize separators
@@ -292,10 +277,9 @@ class RomFilter:
                     if '.' in stem:
                         stem = '.'.join(stem.split('.')[:-1])  # Remove last extension
                     
-                    # Store the original stem (case-insensitive) for precise matching
-                    # Don't use the over-normalized version that strips regional information
-                    precise_name = stem.lower().strip()
-                    existing_roms.add(precise_name)
+                    # Use the same normalization as _normalize_name() for consistency
+                    normalized_name = self._normalize_name(stem)
+                    existing_roms.add(normalized_name)
                     
                     if len(existing_roms) <= 5:  # Log first 5 existing ROMs
                         logger.info(f"Found existing ROM: {entry_name}")

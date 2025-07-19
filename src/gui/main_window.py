@@ -39,7 +39,7 @@ class MainWindow:
         self.web_scraper = WebScraper()
         self.rom_filter = RomFilter(self.config_manager.get_setting("preferred_regions"))
         self.download_manager = DownloadManager(
-            temp_path=self.config_manager.get_setting("temp_download_path", "./temp_downloads"),
+            # temp_path now handled by OS-appropriate directory utilities
             delay_min=self.config_manager.get_setting("download_delay_min", 2),
             delay_max=self.config_manager.get_setting("download_delay_max", 5),
             config_manager=self.config_manager

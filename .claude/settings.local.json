@@ -28,7 +28,9 @@
       "Bash(grep:*)",
       "Bash(git checkout:*)",
       "Bash(timeout 30 python3 run_tests.py basic)",
-      "Bash(timeout:*)"
+      "Bash(timeout:*)",
+      "Bash(git mv:*)",
+      "Bash(mv:*)"
     ],
     "deny": []
   }

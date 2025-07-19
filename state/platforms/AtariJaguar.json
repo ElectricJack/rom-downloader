@@ -1,7 +1,7 @@
 {
   "version": "3.0",
   "platform": "AtariJaguar",
-  "timestamp": "2025-07-17T16:27:56.092534",
+  "timestamp": "2025-07-18T02:10:49.177404",
   "games": {
     "ants": {
       "key": "ants",
@@ -20,7 +20,8 @@
             "USA"
           ],
           "platform": "AtariJaguar",
-          "game_key": "ants"
+          "game_key": "ants",
+          "_is_installed": null
         }
       }
     },
@@ -41,7 +42,8 @@
             "USA"
           ],
           "platform": "AtariJaguar",
-          "game_key": "baldies"
+          "game_key": "baldies",
+          "_is_installed": null
         }
       }
     },
@@ -58,11 +60,12 @@
           "size": "",
           "file_type": "ZIP",
           "tags": [
-            "USA",
-            "Songbird"
+            "Songbird",
+            "USA"
           ],
           "platform": "AtariJaguar",
-          "game_key": "battle_morph"
+          "game_key": "battle_morph",
+          "_is_installed": null
         },
         "ZIP_USA": {
           "filename": "Battle Morph (USA).zip",
@@ -73,7 +76,8 @@
             "USA"
           ],
           "platform": "AtariJaguar",
-          "game_key": "battle_morph"
+          "game_key": "battle_morph",
+          "_is_installed": null
         }
       }
     },
@@ -90,14 +94,15 @@
           "size": "",
           "file_type": "ZIP",
           "tags": [
-            "Alt",
-            "De",
             "Fr",
-            "USA",
-            "En"
+            "En",
+            "De",
+            "Alt",
+            "USA"
           ],
           "platform": "AtariJaguar",
-          "game_key": "blue_lightning"
+          "game_key": "blue_lightning",
+          "_is_installed": null
         },
         "ZIP_USA": {
           "filename": "Blue Lightning (USA).zip",
@@ -108,7 +113,8 @@
             "USA"
           ],
           "platform": "AtariJaguar",
-          "game_key": "blue_lightning"
+          "game_key": "blue_lightning",
+          "_is_installed": null
         }
       }
     },
@@ -128,7 +134,8 @@
             "USA"
           ],
           "platform": "AtariJaguar",
-          "game_key": "braindead_13"
+          "game_key": "braindead_13",
+          "_is_installed": null
         }
       }
     },
@@ -148,7 +155,8 @@
             "USA"
           ],
           "platform": "AtariJaguar",
-          "game_key": "dragons_lair"
+          "game_key": "dragons_lair",
+          "_is_installed": null
         }
       }
     },
@@ -169,7 +177,8 @@
             "USA"
           ],
           "platform": "AtariJaguar",
-          "game_key": "fast_food_64"
+          "game_key": "fast_food_64",
+          "_is_installed": null
         }
       }
     },
@@ -190,7 +199,8 @@
             "USA"
           ],
           "platform": "AtariJaguar",
-          "game_key": "fast_food_64_holiday_snacks"
+          "game_key": "fast_food_64_holiday_snacks",
+          "_is_installed": null
         }
       }
     },
@@ -211,7 +221,8 @@
             "USA"
           ],
           "platform": "AtariJaguar",
-          "game_key": "frog_feast"
+          "game_key": "frog_feast",
+          "_is_installed": null
         }
       }
     },
@@ -232,7 +243,8 @@
             "USA"
           ],
           "platform": "AtariJaguar",
-          "game_key": "frogz_64"
+          "game_key": "frogz_64",
+          "_is_installed": null
         }
       }
     },
@@ -252,7 +264,8 @@
             "USA"
           ],
           "platform": "AtariJaguar",
-          "game_key": "highlander_the_last_of_the_macleods"
+          "game_key": "highlander_the_last_of_the_macleods",
+          "_is_installed": null
         }
       }
     },
@@ -272,7 +285,8 @@
             "USA"
           ],
           "platform": "AtariJaguar",
-          "game_key": "hover_strike_unconquered_lands"
+          "game_key": "hover_strike_unconquered_lands",
+          "_is_installed": null
         }
       }
     },
@@ -289,11 +303,12 @@
           "size": "",
           "file_type": "ZIP",
           "tags": [
-            "USA",
-            "Songbird"
+            "Songbird",
+            "USA"
           ],
           "platform": "AtariJaguar",
-          "game_key": "iron_soldier_2"
+          "game_key": "iron_soldier_2",
+          "_is_installed": null
         }
       }
     },
@@ -314,7 +329,8 @@
             "USA"
           ],
           "platform": "AtariJaguar",
-          "game_key": "klax"
+          "game_key": "klax",
+          "_is_installed": null
         }
       }
     },
@@ -332,11 +348,12 @@
           "file_type": "ZIP",
           "tags": [
             "Alt",
-            "Demo",
-            "USA"
+            "USA",
+            "Demo"
           ],
           "platform": "AtariJaguar",
-          "game_key": "myst"
+          "game_key": "myst",
+          "_is_installed": null
         },
         "ZIP_Demo_USA": {
           "filename": "Myst (USA) (Demo).zip",
@@ -344,11 +361,12 @@
           "size": "",
           "file_type": "ZIP",
           "tags": [
-            "Demo",
-            "USA"
+            "USA",
+            "Demo"
           ],
           "platform": "AtariJaguar",
-          "game_key": "myst"
+          "game_key": "myst",
+          "_is_installed": null
         },
         "ZIP_USA": {
           "filename": "Myst (USA).zip",
@@ -359,7 +377,8 @@
             "USA"
           ],
           "platform": "AtariJaguar",
-          "game_key": "myst"
+          "game_key": "myst",
+          "_is_installed": null
         }
       }
     },
@@ -379,7 +398,8 @@
             "USA"
           ],
           "platform": "AtariJaguar",
-          "game_key": "primal_rage"
+          "game_key": "primal_rage",
+          "_is_installed": null
         }
       }
     },
@@ -400,7 +420,8 @@
             "USA"
           ],
           "platform": "AtariJaguar",
-          "game_key": "robinsons_requiem"
+          "game_key": "robinsons_requiem",
+          "_is_installed": null
         }
       }
     },
@@ -421,7 +442,8 @@
             "USA"
           ],
           "platform": "AtariJaguar",
-          "game_key": "saucer_wars"
+          "game_key": "saucer_wars",
+          "_is_installed": null
         }
       }
     },
@@ -441,7 +463,8 @@
             "USA"
           ],
           "platform": "AtariJaguar",
-          "game_key": "space_ace"
+          "game_key": "space_ace",
+          "_is_installed": null
         }
       }
     },
@@ -461,7 +484,8 @@
             "USA"
           ],
           "platform": "AtariJaguar",
-          "game_key": "vid_grid"
+          "game_key": "vid_grid",
+          "_is_installed": null
         }
       }
     },
@@ -478,11 +502,12 @@
           "size": "",
           "file_type": "ZIP",
           "tags": [
-            "USA",
-            "Songbird"
+            "Songbird",
+            "USA"
           ],
           "platform": "AtariJaguar",
-          "game_key": "world_tour_racing"
+          "game_key": "world_tour_racing",
+          "_is_installed": null
         },
         "ZIP_USA": {
           "filename": "World Tour Racing (USA).zip",
@@ -493,21 +518,22 @@
             "USA"
           ],
           "platform": "AtariJaguar",
-          "game_key": "world_tour_racing"
+          "game_key": "world_tour_racing",
+          "_is_installed": null
         }
       }
     }
   },
   "tag_registry": [
+    "Songbird",
+    "Fr",
+    "En",
+    "Demo",
+    "De",
     "Unl",
     "Alt",
-    "De",
-    "Demo",
-    "USA",
-    "Fr",
-    "Songbird",
-    "En",
-    "Rev"
+    "Rev",
+    "USA"
   ],
   "stats": {
     "total_games": 21,

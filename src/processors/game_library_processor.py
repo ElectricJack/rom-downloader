@@ -78,7 +78,8 @@ class GameLibraryProcessor:
             size=rom_info.size,
             file_type=rom_info.file_type,
             tags=tags,
-            platform=platform
+            platform=platform,
+            clean_name=rom_info.clean_name
         )
     
     def extract_tags_and_normalize(self, filename: str) -> Tuple[Set[str], str]:

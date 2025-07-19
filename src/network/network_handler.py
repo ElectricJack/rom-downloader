@@ -125,7 +125,7 @@ class NetworkHandler:
             
             target_file = target_dir / local_file.name
             
-            logger.info(f"Copying {local_file} to {target_file}")
+            # Copying file to network location
             
             # Get file size for progress tracking
             file_size = local_file.stat().st_size

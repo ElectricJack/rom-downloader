@@ -6,8 +6,11 @@ import json
 import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Any
+import sys
+sys.path.append(str(Path(__file__).parent.parent))
 
 from tools.base import ToolStep
+from utils.dirs import app_dirs
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +19,7 @@ class EnhancedConfigManager:
     """Enhanced configuration manager with tool pipeline support"""
     
     def __init__(self, config_file: Path = None):
-        self.config_file = config_file or Path('config/platforms.json')
+        self.config_file = config_file or app_dirs.get_config_dir() / 'platforms.json'
         self.config_data = {}
         self.load_config()
     
@@ -158,6 +161,22 @@ class EnhancedConfigManager:
         
         pipeline_config = platform_config.get('tool_pipeline', [])
         
+        # Handle legacy extract_archives setting if no explicit tool_pipeline
+        if not pipeline_config and platform_config.get('extract_archives', False):
+            # Create default extraction pipeline for legacy configurations
+            pipeline_config = [
+                {
+                    'tool_id': 'zip_extractor',
+                    'parameters': {'remove_original': True},
+                    'conditions': {'file_types': ['.zip']}
+                },
+                {
+                    'tool_id': 'zip_extractor', 
+                    'parameters': {'remove_original': True},
+                    'conditions': {'file_types': ['.7z']}
+                }
+            ]
+        
         # Convert to ToolStep objects
         pipeline = []
         for step_config in pipeline_config:
@@ -218,8 +237,8 @@ class EnhancedConfigManager:
     
     def get_temp_directory(self) -> Path:
         """Get temporary download directory"""
-        temp_path = self.get_setting('temp_download_path', './temp_downloads')
-        return Path(temp_path)
+        # Temp path is now handled by OS-appropriate directory utilities
+        return app_dirs.get_temp_dir()
     
     def get_preferred_regions(self) -> List[str]:
         """Get preferred regions list"""
@@ -264,7 +283,6 @@ class EnhancedConfigManager:
         return {
             "settings": {
                 "target_directory": "./local_roms",
-                "temp_download_path": "./temp_downloads",
                 "download_delay_min": 2,
                 "download_delay_max": 5,
                 "preferred_regions": ["USA", "US", "En", "English"],

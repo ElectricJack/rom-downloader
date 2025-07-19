@@ -5,6 +5,8 @@ Game library GUI with dynamic filtering and game-centric interface.
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import logging
+import subprocess
+import sys
 from typing import Dict, Set, List, Optional, Callable
 from pathlib import Path
 
@@ -113,10 +115,21 @@ class GameLibraryGUI:
         search_entry.pack(side=tk.LEFT, padx=(0, 10))
         
         # Buttons
-        ttk.Button(top_frame, text="Scan ROMs", command=self.scan_roms).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(top_frame, text="Check Installed", command=self.check_installed_roms).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(top_frame, text="Download Queue", command=self.download_selected).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(top_frame, text="Clear Queue", command=self.clear_selections).pack(side=tk.LEFT)
+        self.scan_button = ttk.Button(top_frame, text="Scan ROMs", command=self.scan_roms)
+        self.scan_button.pack(side=tk.LEFT, padx=(0, 5))
+        
+        self.check_installed_button = ttk.Button(top_frame, text="Check Installed", command=self.check_installed_roms)
+        self.check_installed_button.pack(side=tk.LEFT, padx=(0, 5))
+        
+        self.install_queue_button = ttk.Button(top_frame, text="Install Games in Queue", command=self.download_selected)
+        self.install_queue_button.pack(side=tk.LEFT, padx=(0, 5))
+        
+        self.clear_queue_button = ttk.Button(top_frame, text="Clear Queue", command=self.clear_selections)
+        self.clear_queue_button.pack(side=tk.LEFT, padx=(0, 5))
+        
+        # Cancel Install button (initially disabled)
+        self.cancel_install_button = ttk.Button(top_frame, text="Cancel Install", command=self.cancel_download, state="disabled")
+        self.cancel_install_button.pack(side=tk.LEFT)
     
     def setup_tag_filters(self, parent):
         """Set up dynamic tag filter buttons"""
@@ -877,6 +890,9 @@ class GameLibraryGUI:
         # File menu
         file_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="File", menu=file_menu)
+        file_menu.add_command(label="Open Platform Config", command=self.open_platform_config)
+        file_menu.add_command(label="Open Temp Download Folder", command=self.open_temp_folder)
+        file_menu.add_separator()
         file_menu.add_command(label="Export Queue...", command=self.export_selections)
         file_menu.add_command(label="Import Queue...", command=self.import_selections)
         file_menu.add_separator()
@@ -885,8 +901,7 @@ class GameLibraryGUI:
         # Tools menu
         tools_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Tools", menu=tools_menu)
-        tools_menu.add_command(label="Diagnose ROM Detection", command=self.diagnose_installation_detection)
-        tools_menu.add_separator()
+        # Removed Diagnose ROM Detection tool
         tools_menu.add_command(label="Clear Cache", command=self.clear_cache)
         tools_menu.add_command(label="Cleanup Temp Files", command=self.cleanup_temp_files)
         
@@ -1570,93 +1585,7 @@ class GameLibraryGUI:
         thread.daemon = True
         thread.start()
     
-    def diagnose_installation_detection(self):
-        """Diagnose why installed ROM detection might not be working"""
-        platform = self.current_platform.get()
-        if not platform:
-            messagebox.showwarning("Warning", "Please select a platform first")
-            return
-        
-        logger.info("=" * 50)
-        logger.info("DIAGNOSTIC: ROM Installation Detection")
-        logger.info("=" * 50)
-        
-        # Check target directory configuration
-        target_dir = self.config_manager.get_target_directory(platform)
-        logger.info(f"Platform: {platform}")
-        logger.info(f"Configured target directory: {target_dir}")
-        
-        if not target_dir:
-            logger.error("No target directory configured!")
-            messagebox.showerror("Diagnostic Result", f"No target directory configured for platform: {platform}")
-            return
-        
-        # Check if directory exists
-        try:
-            dir_exists = target_dir.exists()
-            logger.info(f"Target directory exists: {dir_exists}")
-            
-            if not dir_exists:
-                logger.error(f"Target directory does not exist: {target_dir}")
-                messagebox.showerror("Diagnostic Result", 
-                    f"Target directory does not exist:\n{target_dir}\n\n"
-                    f"Please either:\n"
-                    f"1. Create this directory and put some ROMs in it, or\n"
-                    f"2. Update your configuration to point to the correct ROM directory")
-                return
-        except Exception as e:
-            logger.error(f"Error checking directory: {e}")
-            messagebox.showerror("Diagnostic Result", f"Error accessing target directory: {e}")
-            return
-        
-        # Check directory permissions and contents
-        try:
-            logger.info("Checking directory accessibility...")
-            entries = list(target_dir.iterdir())
-            logger.info(f"Directory is accessible, contains {len(entries)} entries")
-            
-            # Count ROM files
-            rom_extensions = {'.rvz', '.zip', '.7z', '.iso', '.gcm', '.bin', '.cue', '.chd'}
-            rom_files = [e for e in entries if e.suffix.lower() in rom_extensions and not e.name.startswith('.')]
-            logger.info(f"Found {len(rom_files)} potential ROM files")
-            
-            if rom_files:
-                logger.info("Sample ROM files found:")
-                for rom_file in rom_files[:5]:  # Show first 5
-                    logger.info(f"  - {rom_file.name}")
-                    
-                # Test normalization on first ROM
-                if rom_files:
-                    test_rom = rom_files[0]
-                    stem = test_rom.name
-                    if '.' in stem:
-                        stem = '.'.join(stem.split('.')[:-1])
-                    normalized = self.rom_filter._normalize_name(stem)
-                    logger.info(f"Test normalization: '{test_rom.name}' -> '{normalized}'")
-            
-            # Check cache status
-            logger.info(f"Current ROM cache size: {len(self.existing_roms)}")
-            if self.existing_roms:
-                sample_cache = list(self.existing_roms)[:5]
-                logger.info(f"Sample cache entries: {sample_cache}")
-            
-            messagebox.showinfo("Diagnostic Result",
-                f"Directory check completed!\n\n"
-                f"Target directory: {target_dir}\n"
-                f"Directory exists: {dir_exists}\n"
-                f"Total entries: {len(entries)}\n"
-                f"ROM files found: {len(rom_files)}\n"
-                f"Cache entries: {len(self.existing_roms)}\n\n"
-                f"Check the console output for detailed logging.")
-                
-        except PermissionError as e:
-            logger.error(f"Permission denied: {e}")
-            messagebox.showerror("Diagnostic Result", f"Permission denied accessing directory: {e}")
-        except Exception as e:
-            logger.error(f"Error scanning directory: {e}", exc_info=True)
-            messagebox.showerror("Diagnostic Result", f"Error scanning directory: {e}")
-        
-        logger.info("=" * 50)
+    # Removed diagnose_installation_detection method
     
     def _check_installed_thread(self, platform: str, target_dir: Path):
         """Check installed ROMs in a separate thread"""
@@ -2217,6 +2146,10 @@ class GameLibraryGUI:
     
     def toggle_queue_status(self, event):
         """Toggle queue status for game or variant"""
+        # Prevent queue modifications during download
+        if self.downloading:
+            return
+            
         item = self.game_tree.identify_row(event.y)
         if not item:
             return
@@ -2292,6 +2225,10 @@ class GameLibraryGUI:
     
     def on_tree_right_click(self, event):
         """Handle right-click context menu"""
+        # Prevent context menu during download
+        if self.downloading:
+            return
+            
         item = self.game_tree.identify_row(event.y)
         if item:
             self.context_menu.post(event.x_root, event.y_root)
@@ -2419,6 +2356,7 @@ class GameLibraryGUI:
             return
         
         self.downloading = True
+        self._set_download_ui_state(downloading=True)
         self.update_status("Starting download...")
         self.update_copy_status("")  # Clear copy status at start
         
@@ -2474,6 +2412,7 @@ class GameLibraryGUI:
             self._safe_gui_update(lambda: self.update_status(f"Download error: {e}"))
         finally:
             self.downloading = False
+            self._safe_gui_update(lambda: self._set_download_ui_state(downloading=False))
     
     def _update_download_progress(self, rom: ROM, progress: DownloadProgress):
         """Update download progress in UI"""
@@ -2508,13 +2447,13 @@ class GameLibraryGUI:
         """Update network copy progress in UI (separate from download progress)"""
         # Use the dedicated copy progress bar
         self.copy_progress_bar['value'] = progress.percentage
-        self.update_copy_status(f"Copying {rom.filename} - {progress.percentage:.1f}% ({progress.speed_formatted})")
+        self.update_copy_status(f"Copying {rom.clean_name} - {progress.percentage:.1f}% ({progress.speed_formatted})")
     
     def _update_copy_completion(self, rom: ROM, result: DownloadResult):
         """Update copy completion in UI"""
         if result.success:
             self.copy_progress_bar['value'] = 100  # Show completion briefly
-            self.update_copy_status(f"Installed: {rom.filename}")
+            self.update_copy_status(f"Installed: {rom.clean_name}")
             self.installation_count += 1
             
             # Remove ROM from selection queue after successful installation
@@ -2533,7 +2472,7 @@ class GameLibraryGUI:
             self.refresh_game_list()
         else:
             self.copy_progress_bar['value'] = 0  # Reset on failure
-            self.update_copy_status(f"Installation failed: {rom.filename} - {result.error_message}")
+            self.update_copy_status(f"Installation failed: {rom.clean_name} - {result.error_message}")
     
     def _installation_complete(self):
         """Handle installation completion"""
@@ -2680,6 +2619,40 @@ class GameLibraryGUI:
         self.download_manager.cleanup_temp_files()
         self.update_status("Temporary files cleaned up")
     
+    def open_platform_config(self):
+        """Open the platform configuration file."""
+        config_file = self.config_manager.config_file
+        try:
+            if sys.platform.startswith('win'):
+                subprocess.run(['start', str(config_file)], shell=True, check=True)
+            elif sys.platform.startswith('darwin'):
+                subprocess.run(['open', str(config_file)], check=True)
+            else:
+                subprocess.run(['xdg-open', str(config_file)], check=True)
+        except subprocess.CalledProcessError:
+            messagebox.showerror("Error", f"Could not open config file: {config_file}")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to open config file: {e}")
+    
+    def open_temp_folder(self):
+        """Open the temporary download folder."""
+        temp_folder = self.download_manager.temp_dir
+        
+        # Ensure the temp directory exists
+        temp_folder.mkdir(parents=True, exist_ok=True)
+        
+        try:
+            if sys.platform.startswith('win'):
+                subprocess.run(['explorer', str(temp_folder)], check=True)
+            elif sys.platform.startswith('darwin'):
+                subprocess.run(['open', str(temp_folder)], check=True)
+            else:
+                subprocess.run(['xdg-open', str(temp_folder)], check=True)
+        except subprocess.CalledProcessError:
+            messagebox.showerror("Error", f"Could not open temp folder: {temp_folder}")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to open temp folder: {e}")
+    
     def show_about(self):
         """Show about dialog"""
         about_text = """ROM Downloader - Game Library
@@ -2703,15 +2676,48 @@ Usage:
 """
         messagebox.showinfo("About", about_text)
     
+    def _set_download_ui_state(self, downloading: bool):
+        """Enable/disable UI elements based on download state"""
+        # Disable these elements when downloading
+        state = "disabled" if downloading else "normal"
+        self.platform_combo.config(state="disabled" if downloading else "readonly")
+        self.scan_button.config(state=state)
+        self.check_installed_button.config(state=state)
+        self.install_queue_button.config(state=state)
+        self.clear_queue_button.config(state=state)
+        
+        # Cancel button is opposite - enabled when downloading
+        cancel_state = "normal" if downloading else "disabled"
+        self.cancel_install_button.config(state=cancel_state)
+        
+        # Disable queue modifications when downloading
+        if hasattr(self, 'tree'):
+            # Disable tree interactions during download
+            for item in self.tree.get_children():
+                self._set_tree_item_state(item, downloading)
+    
+    def _set_tree_item_state(self, item, downloading: bool):
+        """Recursively set tree item state"""
+        # This will prevent queue modifications during download
+        # The actual checkbox clicking will be handled in the click handler
+        for child in self.tree.get_children(item):
+            self._set_tree_item_state(child, downloading)
+    
+    def cancel_download(self):
+        """Cancel ongoing download"""
+        if hasattr(self, 'download_manager') and self.download_manager:
+            self.download_manager.cancel_downloads()
+            self.update_status("Cancelling download...")
+    
     def update_status(self, message: str):
         """Update download status label"""
         self.status_label.config(text=message)
-        logger.info(f"Download Status: {message}")
+        # Download status updated
     
     def update_copy_status(self, message: str):
         """Update copy status label"""
         self.copy_status_label.config(text=message)
-        logger.info(f"Copy Status: {message}")
+        # Copy status updated
     
     def run(self):
         """Start the GUI main loop"""

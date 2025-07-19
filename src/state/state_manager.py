@@ -8,6 +8,9 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Set, Optional
 from datetime import datetime
+import sys
+sys.path.append(str(Path(__file__).parent.parent))
+from utils.dirs import app_dirs
 
 logger = logging.getLogger(__name__)
 
@@ -18,10 +21,10 @@ class StateManager:
         """Initialize the state manager.
         
         Args:
-            state_path: Path to the state file. Defaults to ./state/app_state.json
+            state_path: Path to the state file. Uses OS app data dir if None.
         """
         if state_path is None:
-            state_path = Path(__file__).parent.parent.parent / "state" / "app_state.json"
+            state_path = app_dirs.get_state_dir() / "app_state.json"
         
         self.state_path = state_path
         self.state_data = {}

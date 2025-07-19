@@ -24,14 +24,9 @@ The application is built using Python with a modular architecture:
 # Install dependencies
 pip install -r requirements.txt
 
-# Run the application (recommended)
-python run.py
-
-# Alternative run method
+# Run app
 python main.py
 
-# Run with dependency auto-install
-python run.py
 ```
 
 ## Configuration

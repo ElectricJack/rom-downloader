@@ -9,6 +9,9 @@ import os
 import subprocess
 from pathlib import Path
 from typing import Dict, List, Optional
+import sys
+sys.path.append(str(Path(__file__).parent.parent))
+from utils.dirs import app_dirs
 
 logger = logging.getLogger(__name__)
 
@@ -19,10 +22,10 @@ class ConfigManager:
         """Initialize the configuration manager.
         
         Args:
-            config_path: Path to the configuration file. Defaults to config/platforms.json
+            config_path: Path to the configuration file. Uses OS app data dir if None.
         """
         if config_path is None:
-            config_path = Path(__file__).parent.parent.parent / "config" / "platforms.json"
+            config_path = app_dirs.get_config_dir() / "platforms.json"
         
         self.config_path = config_path
         self.config_data = {}
@@ -47,7 +50,6 @@ class ConfigManager:
         default_config = {
             "settings": {
                 "network_drive_path": "//BATOCERA/share/roms",
-                "temp_download_path": "./temp_downloads",
                 "download_delay_min": 2,
                 "download_delay_max": 5,
                 "preferred_regions": ["USA", "US", "En", "English"],

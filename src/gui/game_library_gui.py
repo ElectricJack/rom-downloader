@@ -891,6 +891,7 @@ class GameLibraryGUI:
         file_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="File", menu=file_menu)
         file_menu.add_command(label="Open Platform Config", command=self.open_platform_config)
+        file_menu.add_command(label="Open ROMs Folder", command=self.open_roms_folder)
         file_menu.add_command(label="Open Temp Download Folder", command=self.open_temp_folder)
         file_menu.add_separator()
         file_menu.add_command(label="Export Queue...", command=self.export_selections)
@@ -2633,6 +2634,38 @@ class GameLibraryGUI:
             messagebox.showerror("Error", f"Could not open config file: {config_file}")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to open config file: {e}")
+    
+    def open_roms_folder(self):
+        """Open the ROMs folder for the currently selected platform."""
+        current_platform = self.current_platform.get()
+        if not current_platform:
+            messagebox.showwarning("No Platform", "Please select a platform first.")
+            return
+        
+        # Get the target path for the current platform
+        target_path = self.config_manager.get_target_directory(current_platform)
+        if not target_path:
+            messagebox.showerror("Configuration Error", 
+                               f"Target path not configured for platform: {current_platform}")
+            return
+        
+        # Ensure the directory exists
+        target_path.mkdir(parents=True, exist_ok=True)
+        
+        try:
+            if sys.platform.startswith('win'):
+                subprocess.run(['explorer', str(target_path)], check=True)
+            elif sys.platform.startswith('darwin'):
+                subprocess.run(['open', str(target_path)], check=True)
+            else:
+                subprocess.run(['xdg-open', str(target_path)], check=True)
+            
+            logger.info(f"Opened ROMs folder: {target_path}")
+            
+        except subprocess.CalledProcessError:
+            messagebox.showerror("Error", f"Could not open ROMs folder: {target_path}")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to open ROMs folder: {e}")
     
     def open_temp_folder(self):
         """Open the temporary download folder."""

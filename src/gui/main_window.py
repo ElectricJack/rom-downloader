@@ -151,6 +151,9 @@ class MainWindow:
         self.delete_button = ttk.Button(control_frame, text="Delete Selected", command=self.delete_selected_roms)
         self.delete_button.pack(side=tk.LEFT, padx=(0, 10))
         
+        self.open_folder_button = ttk.Button(control_frame, text="Open Folder", command=self.open_remote_folder)
+        self.open_folder_button.pack(side=tk.LEFT, padx=(0, 10))
+        
         self.download_button = ttk.Button(control_frame, text="Download Selected", command=self.start_download)
         self.download_button.pack(side=tk.RIGHT)
         
@@ -1008,6 +1011,75 @@ class MainWindow:
             logger.error(f"Error preloading ROM installation info: {e}")
             self._preloaded_roms = {}
     
+    def open_remote_folder(self):
+        """Open the remote ROMs folder for the currently selected platform."""
+        if not self.current_platform:
+            messagebox.showwarning("No Platform", "Please select a platform first.")
+            return
+        
+        # Get the target path for the current platform
+        target_path = self.config_manager.get_target_path(self.current_platform)
+        if not target_path:
+            messagebox.showerror("Configuration Error", 
+                               f"Target path not configured for platform: {self.current_platform}")
+            return
+        
+        try:
+            import subprocess
+            import platform
+            import os
+            
+            # Convert Path to string for subprocess
+            folder_path = str(target_path)
+            
+            # Detect operating system and open file manager accordingly
+            system = platform.system().lower()
+            
+            if system == "windows":
+                # Use explorer to open the folder
+                subprocess.run(["explorer", folder_path], check=True)
+            elif system == "darwin":  # macOS
+                # Use Finder to open the folder
+                subprocess.run(["open", folder_path], check=True)
+            elif system == "linux":
+                # Try common Linux file managers
+                try:
+                    # Try xdg-open first (most universal)
+                    subprocess.run(["xdg-open", folder_path], check=True)
+                except (subprocess.CalledProcessError, FileNotFoundError):
+                    try:
+                        # Try nautilus (GNOME)
+                        subprocess.run(["nautilus", folder_path], check=True)
+                    except (subprocess.CalledProcessError, FileNotFoundError):
+                        try:
+                            # Try dolphin (KDE)
+                            subprocess.run(["dolphin", folder_path], check=True)
+                        except (subprocess.CalledProcessError, FileNotFoundError):
+                            try:
+                                # Try thunar (XFCE)
+                                subprocess.run(["thunar", folder_path], check=True)
+                            except (subprocess.CalledProcessError, FileNotFoundError):
+                                # If all fail, show an error
+                                messagebox.showerror("Error", 
+                                                   f"Could not open folder. Please manually navigate to:\n{folder_path}")
+                                return
+            else:
+                messagebox.showerror("Unsupported OS", 
+                                   f"Opening folders is not supported on {system}")
+                return
+            
+            logger.info(f"Opened remote folder: {folder_path}")
+            self.update_status(f"Opened folder: {self.current_platform}")
+            
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Failed to open folder {folder_path}: {e}")
+            messagebox.showerror("Error", 
+                               f"Failed to open folder.\nPath: {folder_path}\nError: {e}")
+        except Exception as e:
+            logger.error(f"Unexpected error opening folder {folder_path}: {e}")
+            messagebox.showerror("Error", 
+                               f"Unexpected error opening folder: {e}")
+    
     def update_button_states(self):
         """Update button states based on current application state."""
         has_platform = bool(self.current_platform)
@@ -1018,4 +1090,5 @@ class MainWindow:
         self.deselect_all_button.config(state='normal' if has_roms else 'disabled')
         self.select_not_installed_button.config(state='normal' if has_roms else 'disabled')
         self.delete_button.config(state='normal' if has_roms else 'disabled')
+        self.open_folder_button.config(state='normal' if has_platform else 'disabled')
         self.download_button.config(state='normal' if has_roms else 'disabled')

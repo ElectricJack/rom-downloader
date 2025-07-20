@@ -24,6 +24,7 @@ from gui.managers.game_tree_manager import GameTreeManager
 from gui.managers.installation_status_manager import InstallationStatusManager
 from gui.managers.download_controller import DownloadController
 from gui.managers.search_filter_controller import SearchFilterController
+from gui.managers.tree_event_handler import TreeEventHandler
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,7 @@ class GameLibraryGUI:
         self.installation_status_manager = InstallationStatusManager(self)
         self.download_controller = DownloadController(self)
         self.search_filter_controller = SearchFilterController(self)
+        self.tree_event_handler = TreeEventHandler(self)
         
         # GUI state
         self.current_platform = tk.StringVar()
@@ -202,10 +204,8 @@ class GameLibraryGUI:
         tree_scroll_y.grid(row=0, column=1, sticky=(tk.N, tk.S))
         tree_scroll_x.grid(row=1, column=0, sticky=(tk.W, tk.E))
         
-        # Bind events - remove double-click selection, add right-click menu
-        self.game_tree.bind('<Button-1>', self.on_tree_click)
-        self.game_tree.bind('<Button-3>', self.on_tree_right_click)  # Right-click context menu
-        self.game_tree.bind('<<TreeviewSelect>>', self.on_tree_select)
+        # Bind events through tree event handler
+        self.tree_event_handler.bind_events()
         
         # Create context menu
         self.create_context_menu()
@@ -642,56 +642,6 @@ class GameLibraryGUI:
 
     
     
-    def on_tree_click(self, event):
-        """Handle tree click - only toggle queue on checkbox column click"""
-        region = self.game_tree.identify_region(event.x, event.y)
-        if region == "cell":
-            column = self.game_tree.identify_column(event.x)
-            if column == '#1':  # Queued column
-                self.toggle_queue_status(event)
-    
-    def toggle_queue_status(self, event):
-        """Toggle queue status for game or variant"""
-        # Prevent queue modifications during download
-        if self.download_controller.is_downloading():
-            return
-            
-        item = self.game_tree.identify_row(event.y)
-        if not item:
-            return
-        
-        platform = self.current_platform.get()
-        if not platform:
-            return
-        
-        try:
-            item_type = self.game_tree.set(item, 'item_type')
-            game_key = self.game_tree.set(item, 'game_key')
-            variant_key = self.game_tree.set(item, 'variant_key')
-        except:
-            return
-        
-        if item_type == 'game':
-            self.queue_manager.toggle_game_queue_status(game_key, platform)
-        elif item_type == 'variant':
-            # Variants cannot be queued individually - ignore click
-            return
-    
-    
-    
-    def on_tree_right_click(self, event):
-        """Handle right-click context menu"""
-        # Prevent context menu during download
-        if self.download_controller.is_downloading():
-            return
-            
-        item = self.game_tree.identify_row(event.y)
-        if item:
-            self.context_menu.post(event.x_root, event.y_root)
-    
-    def on_tree_select(self, event):
-        """Handle tree selection (for expanding/collapsing)"""
-        pass  # We don't need special handling for selection changes
     
     def scan_roms(self):
         """Scan for ROMs on the selected platform"""

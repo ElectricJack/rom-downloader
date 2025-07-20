@@ -215,7 +215,7 @@ class GameLibraryGUI:
         self.active_tag_buttons = {}
         self.completion_visible = False
     
-    def on_custom_tag_change(self, *args):
+    def on_custom_tag_change(self, *_args):
         """Handle custom tag input change"""
         self.update_auto_completion()
     
@@ -951,7 +951,7 @@ class GameLibraryGUI:
         total_time = time.time() - start_time
         logger.info(f"=== restore_last_state() completed in {total_time:.2f}s ===")
     
-    def on_platform_change(self, *args):
+    def on_platform_change(self, *_args):
         """Handle platform selection change"""
         import time
         start_time = time.time()
@@ -1095,7 +1095,7 @@ class GameLibraryGUI:
         # Use fast filtering instead of full refresh
         self.apply_filters_to_tree()
     
-    def on_search_change(self, *args):
+    def on_search_change(self, *_args):
         """Handle search text change"""
         # Use fast filtering instead of full refresh
         self.apply_filters_to_tree()

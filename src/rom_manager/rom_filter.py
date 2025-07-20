@@ -194,7 +194,7 @@ class RomFilter:
         
         return score
     
-    def scan_existing_roms(self, target_directory: Path, extract_archives: bool = False) -> Set[str]:
+    def scan_existing_roms(self, target_directory: Path, _extract_archives: bool = False) -> Set[str]:
         """Scan the target directory for existing ROM files.
         
         Args:
@@ -302,7 +302,7 @@ class RomFilter:
         logger.info(f"Existing ROM scan completed in {total_time:.2f}s")
         return existing_roms
     
-    def is_rom_installed(self, rom: RomInfo, target_directory: Path, extract_archives: bool = False) -> bool:
+    def is_rom_installed(self, rom: RomInfo, target_directory: Path, _extract_archives: bool = False) -> bool:
         """Check if a ROM is already installed, considering extraction settings.
         
         Args:

@@ -6,7 +6,7 @@ Handles scraping ROM download pages to enumerate available files.
 import re
 import logging
 from typing import List, Dict, Optional
-from urllib.parse import urljoin, urlparse, unquote
+from urllib.parse import urljoin, unquote
 import requests
 from bs4 import BeautifulSoup
 
@@ -75,7 +75,7 @@ class WebScraper:
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         })
     
-    def scrape_roms(self, url: str, file_pattern: str = None, folder_mode: bool = False) -> List[RomInfo]:
+    def scrape_roms(self, url: str, file_pattern: str = None, _folder_mode: bool = False) -> List[RomInfo]:
         """Scrape ROM files from a given URL.
         
         Args:

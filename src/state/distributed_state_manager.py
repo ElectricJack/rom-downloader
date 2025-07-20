@@ -59,7 +59,7 @@ class DistributedStateManager:
         self.batch_mode = True
         return self
     
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type, exc_val, _exc_tb):
         """Exit batch mode - re-enable auto-save and save if dirty"""
         self.batch_mode = False
         if self.selections_dirty:
@@ -620,7 +620,7 @@ class DistributedStateManager:
         """Context manager entry - disable auto-save for batch operations"""
         return self
     
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type, exc_val, _exc_tb):
         """Context manager exit - save if no exception"""
         if exc_type is None:
             self.save_if_dirty()

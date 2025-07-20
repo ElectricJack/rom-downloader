@@ -20,6 +20,7 @@ from rom_manager.rom_filter import RomFilter
 from filters.advanced_rom_filter import AdvancedRomFilter, FilterCriteria
 from gui.managers.tag_filter_manager import TagFilterManager
 from gui.managers.queue_manager import QueueManager
+from gui.managers.game_tree_manager import GameTreeManager
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,7 @@ class GameLibraryGUI:
         self.advanced_filter = AdvancedRomFilter()
         self.tag_filter_manager = TagFilterManager(self)
         self.queue_manager = QueueManager(self)
+        self.game_tree_manager = GameTreeManager(self)
         
         # GUI state
         self.current_platform = tk.StringVar()
@@ -577,236 +579,17 @@ class GameLibraryGUI:
     
     def refresh_game_list(self):
         """Refresh the game list display"""
-        import time
-        start_time = time.time()
-        
-        platform = self.current_platform.get()
-        if not platform:
-            return
-
-        logger.info(f"=== refresh_game_list() started for {platform} ===")
-
-        # Get games for platform
-        games_start = time.time()
-        games = self.state_manager.get_games_for_platform(platform)
-        games_time = time.time() - games_start
-        logger.info(f"get_games_for_platform() took {games_time:.2f}s, got {len(games)} games")
-        
-        # Check if we need to rebuild the tree (data has changed)
-        if self.current_games != games:
-            rebuild_start = time.time()
-            self.rebuild_game_tree(games, platform)
-            rebuild_time = time.time() - rebuild_start
-            logger.info(f"rebuild_game_tree() took {rebuild_time:.2f}s")
-        else:
-            # Just apply filters to existing tree (much faster)
-            filter_start = time.time()
-            self.apply_filters_to_tree()
-            filter_time = time.time() - filter_start
-            logger.info(f"apply_filters_to_tree() took {filter_time:.2f}s")
-        
-        total_time = time.time() - start_time
-        logger.info(f"=== refresh_game_list() completed in {total_time:.2f}s ===")
+        self.game_tree_manager.refresh_game_list()
 
     
     def rebuild_game_tree(self, games: List[Game], platform: str):
         """Rebuild the entire game tree (only when data changes)"""
-        import time
-        start_time = time.time()
-        
-        logger.info(f"=== rebuild_game_tree() started with {len(games)} games ===")
-        
-        # Cancel any running async installation updates since tree structure will change
-        self._async_update_cancelled = True
-        
-        # Clear existing items
-        clear_start = time.time()
-        self.game_tree.delete(*self.game_tree.get_children())
-        clear_time = time.time() - clear_start
-        logger.info(f"Tree clearing took {clear_time:.2f}s")
-        
-        # Reset cancellation flag for new async updates
-        self._async_update_cancelled = False
-        
-        # Clear ROM cache since it's platform-specific
-        self.existing_roms = set()
-        
-        # Auto-populate existing ROMs cache and target directory exists
-        target_dir = self.config_manager.get_target_directory(platform)
-        logger.info(f"Target directory for platform {platform}: {target_dir}")
-        
-        cache_start = time.time()
-        if not self.existing_roms:
-            logger.info("ROM cache is empty, will populate asynchronously...")
-            if target_dir:
-                logger.info(f"Target directory configured: {target_dir}")
-                # Start async ROM scanning - don't block the UI
-                import threading
-                thread = threading.Thread(target=self._async_populate_rom_cache, args=(platform, target_dir))
-                thread.daemon = True
-                thread.start()
-            else:
-                logger.warning(f"No target directory configured for platform: {platform}")
-                self.existing_roms = set()
-        else:
-            logger.info(f"ROM cache already populated with {len(self.existing_roms)} entries")
-        cache_time = time.time() - cache_start
-        logger.info(f"ROM cache setup took {cache_time:.2f}s")
-
-        # Populate tree with all games (no filtering during build)
-        populate_start = time.time()
-        for i, game in enumerate(games):
-            if i % 200 == 0 and i > 0:
-                logger.info(f"Added {i}/{len(games)} games to tree...")
-            self.add_game_to_tree(game, platform)
-        populate_time = time.time() - populate_start
-        logger.info(f"Tree population took {populate_time:.2f}s for {len(games)} games")
-
-        self.current_games = games
-        
-        # Apply filters to the newly built tree
-        filter_start = time.time()
-        self.apply_filters_to_tree()
-        filter_time = time.time() - filter_start
-        logger.info(f"Filter application took {filter_time:.2f}s")
-        
-        total_time = time.time() - start_time
-        logger.info(f"=== rebuild_game_tree() completed in {total_time:.2f}s ===")
+        self.game_tree_manager.rebuild_game_tree(games, platform)
     
     def apply_filters_to_tree(self):
         """Apply current filters by showing/hiding tree items (fast)"""
-        # Get current filter criteria
-        filtered_games = self.apply_filters(self.current_games)
-        filtered_game_keys = {game.key for game in filtered_games}
-        
-        # Store detached items to avoid memory leaks
-        if not hasattr(self, '_detached_items'):
-            self._detached_items = []
-        
-        # First, reattach any previously detached items
-        for item_id in self._detached_items:
-            try:
-                self.game_tree.reattach(item_id, '', 'end')
-            except tk.TclError:
-                # Item no longer exists, ignore
-                pass
-        self._detached_items.clear()
-        
-        # Now detach items that don't match filters and rebuild variants for visible games
-        platform = self.current_platform.get()
-        
-        for item_id in list(self.game_tree.get_children()):  # Create list copy since we're modifying
-            game_key = self.game_tree.set(item_id, 'game_key')
-            
-            if game_key not in filtered_game_keys:
-                # Hide this game by detaching it
-                self.game_tree.detach(item_id)
-                self._detached_items.append(item_id)
-            else:
-                # Game is visible - rebuild its variant children with current filters
-                self._rebuild_game_variants(item_id, game_key, platform)
-        
-        self.update_status(f"Showing {len(filtered_games)} games")
+        self.game_tree_manager.apply_filters_to_tree()
     
-    def _rebuild_game_variants(self, game_item_id: str, game_key: str, platform: str):
-        """Rebuild variant children for a game with current tag filters"""
-        try:
-            # Find the game object
-            game = None
-            for g in self.current_games:
-                if g.key == game_key:
-                    game = g
-                    break
-            
-            if not game:
-                return
-            
-            # Remove all existing variant children
-            for child_id in list(self.game_tree.get_children(game_item_id)):
-                self.game_tree.delete(child_id)
-            
-            # Get all variants for this platform
-            variants = game.get_variants_for_platform(platform)
-            
-            # Filter variants based on current tag filters
-            filtered_variants = [rom for rom in variants if self.rom_matches_tags(rom)]
-            
-            # Update the variant count in the game item
-            variant_count_text = f"{len(filtered_variants)}/{len(variants)} variants" if len(filtered_variants) != len(variants) else f"{len(variants)} variants"
-            current_values = list(self.game_tree.item(game_item_id, 'values'))
-            current_values[2] = variant_count_text  # Update variant count column
-            self.game_tree.item(game_item_id, values=tuple(current_values))
-            
-            # Get current game selection
-            selection = self.state_manager.get_selection(game_key, platform)
-            
-            # Add filtered variants as children
-            for rom in filtered_variants:
-                # Check if this specific variant is queued
-                variant_queued = ""
-                if selection and selection.selected_rom_variant == rom.create_variant_key():
-                    variant_queued = "✓"
-                
-                # Get installation status from cache if available
-                cached_installed = rom.is_installed()
-                variant_installed = "✓" if cached_installed is True else ""
-                
-                # Format tags for this variant
-                rom_tags = ", ".join(sorted(rom.tags)) if rom.tags else ""
-                
-                # Determine visual styling for variant
-                variant_visual_tags = ['variant']
-                if variant_queued:
-                    variant_visual_tags.append('queued')
-                if cached_installed is True:
-                    variant_visual_tags.append('installed')
-                if variant_queued and cached_installed is True:
-                    variant_visual_tags.append('queued_installed')
-                
-                self.game_tree.insert(
-                    game_item_id,
-                    'end',
-                    text=rom.filename,
-                    values=(variant_queued, variant_installed, rom.size, rom_tags, 'variant', game.key, rom.create_variant_key()),
-                    tags=tuple(variant_visual_tags)
-                )
-        
-        except Exception as e:
-            logger.error(f"Error rebuilding variants for game {game_key}: {e}")
-    
-    def apply_visual_filters(self, visible_game_keys: Set[str]):
-        """Apply visual filtering using tags and styling (backup method)"""
-        # This method is kept as a backup but not used in the main flow
-        for item_id in self.game_tree.get_children():
-            game_key = self.game_tree.set(item_id, 'game_key')
-            
-            # Get current tags and remove any existing filter tags
-            current_tags = list(self.game_tree.item(item_id, 'tags'))
-            current_tags = [tag for tag in current_tags if tag != 'filtered_out']
-            
-            if game_key not in visible_game_keys:
-                # This game should be filtered out
-                current_tags.append('filtered_out')
-                self.game_tree.item(item_id, tags=tuple(current_tags))
-                
-                # Also filter out child variants
-                for child_id in self.game_tree.get_children(item_id):
-                    child_tags = list(self.game_tree.item(child_id, 'tags'))
-                    child_tags = [tag for tag in child_tags if tag != 'filtered_out']
-                    child_tags.append('filtered_out')
-                    self.game_tree.item(child_id, tags=tuple(child_tags))
-            else:
-                # This game should be visible
-                self.game_tree.item(item_id, tags=tuple(current_tags))
-                
-                # Also show child variants
-                for child_id in self.game_tree.get_children(item_id):
-                    child_tags = list(self.game_tree.item(child_id, 'tags'))
-                    child_tags = [tag for tag in child_tags if tag != 'filtered_out']
-                    self.game_tree.item(child_id, tags=tuple(child_tags))
-        
-        # Configure the filtered_out tag to make items barely visible
-        self.game_tree.tag_configure('filtered_out', foreground='lightgray', background='')
     
     def apply_filters(self, games: List[Game]) -> List[Game]:
         """Apply current filters to game list"""
@@ -863,73 +646,7 @@ class GameLibraryGUI:
     
     def add_game_to_tree(self, game: Game, platform: str):
         """Add a game and its variants to the treeview"""
-        # Get variants for this platform
-        variants = game.get_variants_for_platform(platform)
-        if not variants:
-            return
-        
-        # Check if any variant is queued
-        selection = self.state_manager.get_selection(game.key, platform)
-        queued_text = "✓" if selection else ""
-        
-        # Skip installation checking during initial tree population to avoid blocking
-        # Installation status will be updated asynchronously after ROM cache is populated
-        installed_text = ""
-        
-        # Filter variants based on active tag filters first
-        filtered_variants = [rom for rom in variants if self.rom_matches_tags(rom)]
-        
-        # Get tags for display with grouping
-        tags = game.get_all_tags()
-        if tags:
-            # Use the processor to categorize and format tags
-            categorized_tags = self.library_processor.categorize_tags(tags)
-            tags_text = self.library_processor.format_tag_groups_compact(categorized_tags)
-        else:
-            tags_text = ""
-        
-        # Determine visual styling (installation status will be updated later)
-        visual_tags = ['game']
-        if selection:
-            visual_tags.append('queued')
-        
-        # Show filtered vs total variant count
-        variant_count_text = f"{len(filtered_variants)}/{len(variants)} variants" if len(filtered_variants) != len(variants) else f"{len(variants)} variants"
-        
-        # Insert game item
-        game_item = self.game_tree.insert(
-            '',
-            'end',
-            text=game.display_name,
-            values=(queued_text, installed_text, variant_count_text, tags_text, 'game', game.key, ''),
-            tags=tuple(visual_tags)
-        )
-        
-        # Add filtered ROM variants as children
-        for rom in filtered_variants:
-            # Check if this specific variant is queued
-            variant_queued = ""
-            if selection and selection.selected_rom_variant == rom.create_variant_key():
-                variant_queued = "✓"
-            
-            # Skip installation checking during initial tree population to avoid blocking
-            variant_installed = ""
-            
-            # Format tags for this variant
-            rom_tags = ", ".join(sorted(rom.tags)) if rom.tags else ""
-            
-            # Determine visual styling for variant (installation status will be updated later)
-            variant_visual_tags = ['variant']
-            if variant_queued:
-                variant_visual_tags.append('queued')
-            
-            self.game_tree.insert(
-                game_item,
-                'end',
-                text=rom.filename,
-                values=(variant_queued, variant_installed, rom.size, rom_tags, 'variant', game.key, rom.create_variant_key()),
-                tags=tuple(variant_visual_tags)
-            )
+        self.game_tree_manager.add_game_to_tree(game, platform)
     
     def is_rom_installed(self, rom: ROM, platform: str) -> bool:
         """Check if a ROM is installed on the target drive"""

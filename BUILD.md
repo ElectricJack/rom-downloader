@@ -4,17 +4,30 @@ This document explains how to build ROM Downloader into a standalone Windows exe
 
 ## Quick Start
 
-### Option 1: Shell Script (Recommended)
+### Option 1: Simple Windows Build (Recommended for Windows)
+```cmd
+# Direct Windows build - no dependencies
+build_windows.bat
+```
+
+### Option 2: PowerShell Script (Windows)
+```powershell
+# Full-featured PowerShell build
+.\build_release.ps1
+```
+
+### Option 3: Shell Script (Linux/WSL/Git Bash)
 ```bash
-# Linux/WSL/Git Bash
+# Cross-platform shell script
 ./build_release.sh
 
-# Windows Command Prompt
+# Windows via batch wrapper
 build_release.bat
 ```
 
-### Option 2: Python Script (Cross-platform)
+### Option 4: Python Script (Cross-platform)
 ```bash
+# Pure Python implementation
 python build_simple.py
 ```
 
@@ -57,7 +70,54 @@ brew install mingw-w64
 
 ## Build Methods
 
-### Method 1: Advanced Shell Script
+### Method 1: Simple Windows Build Script
+
+The `build_windows.bat` script provides the easiest Windows build experience with no external dependencies.
+
+#### Features
+- Native Windows batch implementation
+- No Git Bash or WSL required
+- Automatic dependency installation
+- Direct Nuitka execution
+- Release packaging with ZIP creation
+- Interactive testing option
+
+#### Usage
+```cmd
+# Run from Windows Command Prompt
+build_windows.bat
+```
+
+### Method 2: PowerShell Build Script
+
+The `build_release.ps1` script provides a full-featured PowerShell implementation.
+
+#### Features
+- Native PowerShell with rich output formatting
+- Advanced error handling and logging
+- JSON configuration support
+- Comprehensive build verification
+- Multiple execution modes
+
+#### Usage
+```powershell
+# Basic build
+.\build_release.ps1
+
+# Clean previous builds only
+.\build_release.ps1 -CleanOnly
+
+# Build without cleanup
+.\build_release.ps1 -NoCleanup
+
+# Verify existing build
+.\build_release.ps1 -VerifyOnly
+
+# Help
+.\build_release.ps1 -Help
+```
+
+### Method 3: Advanced Shell Script
 
 The `build_release.sh` script provides the most comprehensive build process with full customization options.
 

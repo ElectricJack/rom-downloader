@@ -7,6 +7,10 @@ setlocal enabledelayedexpansion
 echo ROM Downloader Windows Build Script
 echo ===================================
 
+rem Fix line endings if needed (convert CRLF to LF)
+echo Ensuring Unix line endings for shell script...
+powershell -Command "(Get-Content build_release.sh -Raw) -replace '\r\n', '\n' | Set-Content build_release.sh -NoNewline"
+
 rem Check for Git Bash
 where bash >nul 2>&1
 if %errorlevel% == 0 (

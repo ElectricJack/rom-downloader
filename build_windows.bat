@@ -74,18 +74,18 @@ python -m nuitka ^
     --include-data-dir=config=config ^
     --include-data-dir=tools=tools ^
     --include-package=src ^
-    --include-package=config ^
-    --include-package=gui ^
-    --include-package=models ^
-    --include-package=downloader ^
-    --include-package=scraper ^
-    --include-package=processors ^
-    --include-package=filters ^
-    --include-package=tools ^
-    --include-package=state ^
-    --include-package=network ^
-    --include-package=rom_manager ^
-    --include-package=utils ^
+    --include-package=src.config ^
+    --include-package=src.gui ^
+    --include-package=src.models ^
+    --include-package=src.downloader ^
+    --include-package=src.scraper ^
+    --include-package=src.processors ^
+    --include-package=src.filters ^
+    --include-package=src.tools ^
+    --include-package=src.state ^
+    --include-package=src.network ^
+    --include-package=src.rom_manager ^
+    --include-package=src.utils ^
     --lto=yes ^
     --static-libpython=yes ^
     --remove-output ^

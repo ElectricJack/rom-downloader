@@ -80,6 +80,18 @@ python -m nuitka ^
     --include-data-dir=config=config ^
     --include-data-dir=tools=tools ^
     --include-package=src ^
+    --include-package=src.config ^
+    --include-package=src.gui ^
+    --include-package=src.models ^
+    --include-package=src.downloader ^
+    --include-package=src.scraper ^
+    --include-package=src.processors ^
+    --include-package=src.filters ^
+    --include-package=src.tools ^
+    --include-package=src.state ^
+    --include-package=src.network ^
+    --include-package=src.rom_manager ^
+    --include-package=src.utils ^
     --lto=yes ^
     --static-libpython=yes ^
     --remove-output ^

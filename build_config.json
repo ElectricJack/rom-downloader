@@ -28,18 +28,18 @@
     ],
     "include_packages": [
       "src",
-      "config",
-      "gui",
-      "models",
-      "downloader",
-      "scraper",
-      "processors",
-      "filters",
-      "tools",
-      "state",
-      "network",
-      "rom_manager",
-      "utils"
+      "src.config",
+      "src.gui",
+      "src.models",
+      "src.downloader",
+      "src.scraper",
+      "src.processors",
+      "src.filters",
+      "src.tools",
+      "src.state",
+      "src.network",
+      "src.rom_manager",
+      "src.utils"
     ],
     "include_data_dirs": [
       {

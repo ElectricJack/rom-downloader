@@ -83,6 +83,53 @@ check_dependencies() {
         exit 1
     fi
     
+    # Check cross-compilation dependencies for Linux
+    if [[ "$PLATFORM" == "linux" || "$PLATFORM" == "wsl" ]]; then
+        log_info "Checking cross-compilation dependencies..."
+        
+        # Check for patchelf (required for standalone mode)
+        if ! command -v patchelf &> /dev/null; then
+            log_warn "patchelf not found. Attempting to install..."
+            if command -v apt-get &> /dev/null; then
+                sudo apt-get update && sudo apt-get install -y patchelf
+            elif command -v dnf &> /dev/null; then
+                sudo dnf install -y patchelf
+            elif command -v yum &> /dev/null; then
+                sudo yum install -y patchelf
+            elif command -v pacman &> /dev/null; then
+                sudo pacman -S --noconfirm patchelf
+            else
+                log_error "Could not install patchelf automatically. Please install it manually:"
+                log_error "  Ubuntu/Debian: sudo apt-get install patchelf"
+                log_error "  Fedora/RHEL: sudo dnf install patchelf"
+                log_error "  Arch: sudo pacman -S patchelf"
+                exit 1
+            fi
+        fi
+        
+        # Check for MinGW-w64 for Windows cross-compilation
+        if ! command -v x86_64-w64-mingw32-gcc &> /dev/null; then
+            log_warn "MinGW-w64 not found. Attempting to install..."
+            if command -v apt-get &> /dev/null; then
+                sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64
+            elif command -v dnf &> /dev/null; then
+                sudo dnf install -y mingw64-gcc
+            elif command -v yum &> /dev/null; then
+                sudo yum install -y mingw64-gcc
+            elif command -v pacman &> /dev/null; then
+                sudo pacman -S --noconfirm mingw-w64-gcc
+            else
+                log_warn "Could not install MinGW-w64 automatically. Cross-compilation may fail."
+                log_warn "To install manually:"
+                log_warn "  Ubuntu/Debian: sudo apt-get install gcc-mingw-w64-x86-64"
+                log_warn "  Fedora/RHEL: sudo dnf install mingw64-gcc"
+                log_warn "  Arch: sudo pacman -S mingw-w64-gcc"
+            fi
+        fi
+        
+        log_info "Cross-compilation dependencies checked"
+    fi
+    
     # Check if Nuitka is installed
     if ! $PYTHON_CMD -c "import nuitka" 2>/dev/null; then
         log_warn "Nuitka not found. Installing..."
@@ -91,7 +138,7 @@ check_dependencies() {
     
     # Check application dependencies
     log_info "Installing application dependencies..."
-    $PYTHON_CMD -m pip install -r requirements.txt
+    $PYTHON_CMD -m pip install -r requirements-build.txt
     
     log_success "Dependencies check completed"
 }
@@ -171,18 +218,18 @@ build_executable() {
     # Include source modules
     NUITKA_ARGS+=(
         --include-package=src
-        --include-package=config
-        --include-package=gui
-        --include-package=models
-        --include-package=downloader
-        --include-package=scraper
-        --include-package=processors
-        --include-package=filters
-        --include-package=tools
-        --include-package=state
-        --include-package=network
-        --include-package=rom_manager
-        --include-package=utils
+        --include-package=src.config
+        --include-package=src.gui
+        --include-package=src.models
+        --include-package=src.downloader
+        --include-package=src.scraper
+        --include-package=src.processors
+        --include-package=src.filters
+        --include-package=src.tools
+        --include-package=src.state
+        --include-package=src.network
+        --include-package=src.rom_manager
+        --include-package=src.utils
     )
     
     # Optimization flags

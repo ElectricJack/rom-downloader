@@ -72,7 +72,7 @@ class GameTreeManager:
         logger.info(f"=== rebuild_game_tree() started with {len(games)} games ===")
         
         # Cancel any running async installation updates since tree structure will change
-        self.gui._async_update_cancelled = True
+        self.gui.installation_status_manager.cancel_async_updates()
         
         # Clear existing items
         clear_start = time.time()
@@ -81,29 +81,30 @@ class GameTreeManager:
         logger.info(f"Tree clearing took {clear_time:.2f}s")
         
         # Reset cancellation flag for new async updates
-        self.gui._async_update_cancelled = False
+        # Reset async update cancellation flag
+        self.gui.installation_status_manager._async_update_cancelled = False
         
         # Clear ROM cache since it's platform-specific
-        self.gui.existing_roms = set()
+        self.gui.installation_status_manager.existing_roms = set()
         
         # Auto-populate existing ROMs cache and target directory exists
         target_dir = self.gui.config_manager.get_target_directory(platform)
         logger.info(f"Target directory for platform {platform}: {target_dir}")
         
         cache_start = time.time()
-        if not self.gui.existing_roms:
+        if not self.gui.installation_status_manager.existing_roms:
             logger.info("ROM cache is empty, will populate asynchronously...")
             if target_dir:
                 logger.info(f"Target directory configured: {target_dir}")
                 # Start async ROM scanning - don't block the UI
-                thread = threading.Thread(target=self.gui._async_populate_rom_cache, args=(platform, target_dir))
+                thread = threading.Thread(target=self.gui.installation_status_manager._async_populate_rom_cache, args=(platform, target_dir))
                 thread.daemon = True
                 thread.start()
             else:
                 logger.warning(f"No target directory configured for platform: {platform}")
-                self.gui.existing_roms = set()
+                self.gui.installation_status_manager.existing_roms = set()
         else:
-            logger.info(f"ROM cache already populated with {len(self.gui.existing_roms)} entries")
+            logger.info(f"ROM cache already populated with {len(self.gui.installation_status_manager.existing_roms)} entries")
         cache_time = time.time() - cache_start
         logger.info(f"ROM cache setup took {cache_time:.2f}s")
 

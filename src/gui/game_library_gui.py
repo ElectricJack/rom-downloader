@@ -21,6 +21,7 @@ from filters.advanced_rom_filter import AdvancedRomFilter, FilterCriteria
 from gui.managers.tag_filter_manager import TagFilterManager
 from gui.managers.queue_manager import QueueManager
 from gui.managers.game_tree_manager import GameTreeManager
+from gui.managers.installation_status_manager import InstallationStatusManager
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,7 @@ class GameLibraryGUI:
         self.tag_filter_manager = TagFilterManager(self)
         self.queue_manager = QueueManager(self)
         self.game_tree_manager = GameTreeManager(self)
+        self.installation_status_manager = InstallationStatusManager(self)
         
         # GUI state
         self.current_platform = tk.StringVar()
@@ -62,9 +64,7 @@ class GameLibraryGUI:
         # Data
         self.current_games = []
         self.downloading = False
-        self.existing_roms = set()  # Cache of installed ROMs
         self._gui_active = True  # Flag to track if GUI is still active
-        self._async_update_cancelled = False  # Flag to cancel async updates
         self.installation_count = 0  # Track completed installations
         self.total_queued_count = 0  # Track total ROMs queued for download
         
@@ -125,7 +125,7 @@ class GameLibraryGUI:
         self.scan_button = ttk.Button(top_frame, text="Scan ROMs", command=self.scan_roms)
         self.scan_button.pack(side=tk.LEFT, padx=(0, 5))
         
-        self.check_installed_button = ttk.Button(top_frame, text="Check Installed", command=self.check_installed_roms)
+        self.check_installed_button = ttk.Button(top_frame, text="Check Installed", command=self.installation_status_manager.check_installed_roms)
         self.check_installed_button.pack(side=tk.LEFT, padx=(0, 5))
         
         self.install_queue_button = ttk.Button(top_frame, text="Install Games in Queue", command=self.download_selected)
@@ -247,7 +247,7 @@ class GameLibraryGUI:
         variant_installed_map = {}  # Cache installed status for each variant
         
         for rom in variants:
-            is_installed = self.is_rom_installed(rom, platform)
+            is_installed = self.installation_status_manager.is_rom_installed(rom, platform)
             variant_key = rom.create_variant_key()
             variant_installed_map[variant_key] = is_installed
             if is_installed:
@@ -379,7 +379,7 @@ class GameLibraryGUI:
                 variant_installed_map = {}  # Cache installed status for each variant
                 
                 for rom in variants:
-                    is_installed = self.is_rom_installed(rom, platform)
+                    is_installed = self.installation_status_manager.is_rom_installed(rom, platform)
                     variant_key = rom.create_variant_key()
                     variant_installed_map[variant_key] = is_installed
                     if is_installed:
@@ -556,7 +556,7 @@ class GameLibraryGUI:
             logger.info(f"update_tag_buttons() took {tag_time:.2f}s")
             
             # Clear existing ROM cache when platform changes
-            self.existing_roms.clear()
+            self.installation_status_manager.clear_existing_roms_cache()
             # Force a full rebuild since platform changed
             self.current_games = []  # This will trigger a rebuild
             
@@ -564,6 +564,9 @@ class GameLibraryGUI:
             self.refresh_game_list()
             refresh_time = time.time() - refresh_start
             logger.info(f"refresh_game_list() took {refresh_time:.2f}s")
+            
+            # Start background installation status checking
+            self.installation_status_manager.start_background_checking(platform)
             
             total_time = time.time() - start_time
             logger.info(f"=== on_platform_change() completed in {total_time:.2f}s ===")
@@ -648,183 +651,6 @@ class GameLibraryGUI:
         """Add a game and its variants to the treeview"""
         self.game_tree_manager.add_game_to_tree(game, platform)
     
-    def is_rom_installed(self, rom: ROM, platform: str) -> bool:
-        """Check if a ROM is installed on the target drive"""
-        # First check if we have cached installation status
-        cached_status = rom.is_installed()
-        if cached_status is not None:
-            return cached_status
-        
-        target_dir = self.config_manager.get_target_directory(platform)
-        if not target_dir:
-            return False
-        
-        # Check if target directory exists
-        try:
-            dir_exists = target_dir.exists()
-            if not dir_exists:
-                return False
-        except Exception as e:
-            logger.error(f"Error checking target directory existence: {e}")
-            return False
-        
-        # Use existing ROM cache for fast lookup if available
-        if self.existing_roms:
-            result = self._precise_rom_match(rom.filename, self.existing_roms)
-            
-            # Cache the result for future use
-            rom.set_installed(result)
-            return result
-        
-        # Fallback to direct checking if cache is empty
-        # Create a RomInfo object from ROM for compatibility with RomFilter
-        rom_info = RomInfo(
-            name=rom.filename,
-            url=rom.url,
-            size=rom.size
-        )
-        
-        result = self.rom_filter.is_rom_installed(rom_info, target_dir)
-        
-        # Cache the result for future use
-        rom.set_installed(result)
-        return result
-    
-    def _precise_rom_match(self, rom_filename: str, existing_roms: set) -> bool:
-        """
-        Perform precise ROM matching using multiple strategies to avoid false positives.
-        
-        Args:
-            rom_filename: The ROM filename to check (e.g., "007 - Everything or Nothing (Japan).zip")
-            existing_roms: Set of existing ROM stems (case-insensitive, no extensions)
-        
-        Returns:
-            True if the ROM is found, False otherwise
-        """
-        # Get the stem (filename without extension)
-        stem = rom_filename
-        if '.' in stem:
-            stem = '.'.join(stem.split('.')[:-1])
-        
-        # Strategy 1: Exact match (case-insensitive)
-        precise_name = stem.lower().strip()
-        if precise_name in existing_roms:
-            return True
-        
-        # Strategy 2: Use the same normalization as the existing_roms set
-        normalized_name = self.rom_filter._normalize_name(stem)
-        if normalized_name in existing_roms:
-            return True
-        
-        # Strategy 3: Check if any existing ROM matches this one with different extension
-        # This handles cases like .zip vs .rvz for the same game
-        for existing_rom in existing_roms:
-            if self._are_same_rom_different_format(normalized_name, existing_rom):
-                return True
-        
-        return False
-    
-    def _basic_normalize_preserving_regions(self, name: str) -> str:
-        """
-        Normalize ROM name while preserving regional and language information.
-        This is less aggressive than the original _normalize_name().
-        """
-        import re
-        
-        # Convert to lowercase
-        normalized = name.lower().strip()
-        
-        # Normalize spaces and punctuation, but preserve regional info
-        normalized = re.sub(r'\s+', ' ', normalized)  # Multiple spaces to single
-        normalized = re.sub(r'[_\-]+', ' ', normalized)  # Underscores/dashes to spaces
-        normalized = normalized.strip()
-        
-        return normalized
-    
-    def _are_same_rom_different_format(self, rom1: str, rom2: str) -> bool:
-        """
-        Check if two ROM names represent the same game but in different formats.
-        This is a very conservative check to avoid false positives.
-        """
-        # Only consider them the same if they're very similar
-        # This is intentionally strict to avoid false matches
-        return rom1 == rom2
-    
-    def check_installed_roms(self):
-        """Scan target directory for installed ROMs and refresh display"""
-        platform = self.current_platform.get()
-        if not platform:
-            messagebox.showwarning("Warning", "Please select a platform first")
-            return
-
-        target_dir = self.config_manager.get_target_directory(platform)
-        if not target_dir:
-            messagebox.showwarning("Warning", f"No target directory configured for platform: {platform}")
-            return
-
-        self.update_status("Scanning for installed ROMs...")
-        self.progress_bar.configure(mode='indeterminate')
-        self.progress_bar.start()
-
-        # Run scan in a separate thread
-        import threading
-        thread = threading.Thread(target=self._check_installed_thread, args=(platform, target_dir))
-        thread.daemon = True
-        thread.start()
-    
-    # Removed diagnose_installation_detection method
-    
-    def _check_installed_thread(self, platform: str, target_dir: Path):
-        """Check installed ROMs in a separate thread"""
-        try:
-            # Check if GUI is still active
-            if not self._gui_active:
-                return
-                
-            # Scan existing ROMs
-            self.existing_roms = self.rom_filter.scan_existing_roms(target_dir)
-            
-            # Update UI (if GUI still active)
-            self._safe_gui_update(lambda: self._check_installed_complete(len(self.existing_roms)))
-            
-        except Exception as e:
-            logger.error(f"Error checking installed ROMs: {e}")
-            self._safe_gui_update(lambda: self.update_status(f"Error: {e}"))
-        finally:
-            self._safe_gui_update(lambda: self.progress_bar.stop())
-            self._safe_gui_update(lambda: self.progress_bar.configure(mode='determinate'))
-
-    def _async_populate_rom_cache(self, platform: str, target_dir: Path):
-        """Populate ROM cache asynchronously without blocking the UI"""
-        try:
-            logger.info(f"Starting async ROM cache population for {platform}")
-            
-            # Check if GUI is still active
-            if not self._gui_active:
-                logger.info("GUI no longer active, cancelling ROM cache population")
-                return
-            
-            # Check if directory exists
-            dir_exists = target_dir.exists()
-            logger.info(f"Target directory exists: {dir_exists}")
-            
-            if dir_exists:
-                self._safe_gui_update(lambda: self.update_status("Checking for installed ROMs..."))
-                logger.info("Starting ROM cache population...")
-                
-                # Scan existing ROMs
-                existing_roms = self.rom_filter.scan_existing_roms(target_dir)
-                
-                # Update cache and UI on main thread (if GUI still active)
-                self._safe_gui_update(lambda: self._update_rom_cache(existing_roms, platform))
-                
-            else:
-                logger.warning(f"Target directory does not exist: {target_dir}")
-                self._safe_gui_update(lambda: self.update_status("Ready"))
-                
-        except Exception as e:
-            logger.error(f"Failed to scan existing ROMs: {e}", exc_info=True)
-            self._safe_gui_update(lambda: self.update_status("Ready"))
 
     def _safe_gui_update(self, callback):
         """Safely update GUI from background thread, handling main loop errors"""
@@ -842,486 +668,7 @@ class GameLibraryGUI:
         except Exception as e:
             logger.error(f"Error updating GUI: {e}")
 
-    def _update_rom_cache(self, existing_roms: set, platform: str):
-        """Update ROM cache and refresh display (called on main thread)"""
-        self.existing_roms = existing_roms
-        logger.info(f"Updated ROM cache: {len(self.existing_roms)} ROMs found")
-        
-        # Log first few entries for debugging
-        if self.existing_roms:
-            sample_roms = list(self.existing_roms)[:5]
-            logger.info(f"Sample cached ROM names: {sample_roms}")
-        
-        # Bulk update installation cache for all games/ROMs
-        self._bulk_update_installation_cache(platform)
-        
-        # Schedule fast tree visual update using cached data
-        import threading
-        thread = threading.Thread(target=self._async_update_tree_from_cache)
-        thread.daemon = True
-        thread.start()
-        self.update_status("Ready")
     
-    def _bulk_update_installation_cache(self, platform: str):
-        """Bulk update installation cache for all games using directory scan results"""
-        if not self.current_games or not self.existing_roms:
-            return
-            
-        total_roms = 0
-        cached_roms = 0
-        
-        for game in self.current_games:
-            # Clear existing cache for this platform
-            game.clear_installation_cache_for_platform(platform)
-            
-            # Update cache for all variants using precise matching
-            for rom in game.get_variants_for_platform(platform):
-                total_roms += 1
-                
-                # Use the new precise matching logic
-                is_installed = self._precise_rom_match(rom.filename, self.existing_roms)
-                
-                # Cache the result
-                rom.set_installed(is_installed)
-                if is_installed:
-                    cached_roms += 1
-        
-        logger.info(f"Cached installation status for {total_roms} ROMs, {cached_roms} installed")
-    
-    def _async_update_tree_from_cache(self):
-        """Fast tree update using cached installation data"""
-        try:
-            if not self._gui_active or not self.current_games or self._async_update_cancelled:
-                return
-            
-            platform = self.current_platform.get()
-            if not platform:
-                return
-            
-            # Get all tree items to update
-            tree_items = list(self.game_tree.get_children())
-            total_items = len(tree_items)
-            
-            # Process in larger chunks since we're using cached data
-            chunk_size = 100  # Larger chunks since no I/O
-            processed = 0
-            
-            for i in range(0, total_items, chunk_size):
-                if not self._gui_active or self._async_update_cancelled:
-                    logger.info("Async tree cache update cancelled")
-                    break
-                
-                chunk = tree_items[i:i + chunk_size]
-                
-                # Process this chunk using cached data
-                updates = []
-                for item_id in chunk:
-                    try:
-                        # Check if item still exists
-                        if not self.game_tree.exists(item_id):
-                            continue
-                            
-                        game_key = self.game_tree.set(item_id, 'game_key')
-                        if game_key:
-                            # Find the game object
-                            game = None
-                            for g in self.current_games:
-                                if g.key == game_key:
-                                    game = g
-                                    break
-                            
-                            if game:
-                                # Use cached installation data
-                                game_update = self._prepare_cached_game_update(item_id, game, platform)
-                                if game_update:
-                                    updates.append(game_update)
-                                
-                                # Prepare updates for child variants using cache
-                                for child_item in self.game_tree.get_children(item_id):
-                                    variant_update = self._prepare_cached_variant_update(child_item, game, platform)
-                                    if variant_update:
-                                        updates.append(variant_update)
-                    except Exception as e:
-                        logger.error(f"Error preparing cached update for tree item {item_id}: {e}")
-                
-                # Schedule GUI updates on main thread
-                if updates:
-                    self._safe_gui_update(lambda: self._apply_tree_updates(updates))
-                
-                processed += len(chunk)
-                
-                # Smaller delay since we're using cached data
-                import time
-                time.sleep(0.005)  # 5ms vs 10ms
-            
-            logger.info(f"Completed cached tree installation status update for {processed} items")
-            
-        except Exception as e:
-            logger.error(f"Error in cached tree installation status update: {e}")
-    
-    def _prepare_cached_game_update(self, item_id: str, game, platform: str):
-        """Prepare game update using cached installation data"""
-        try:
-            if not self.game_tree.exists(item_id):
-                return None
-                
-            # Only check installation status for filtered variants (same logic as tree building)
-            variants = game.get_variants_for_platform(platform)
-            filtered_variants = [rom for rom in variants if self.rom_matches_tags(rom)]
-            
-            # Check if any of the visible/filtered variants are installed
-            has_installed = any(rom.is_installed() is True for rom in filtered_variants)
-            installed_text = "✓" if has_installed else ""
-            
-            # Determine visual tags
-            current_tags = list(self.game_tree.item(item_id, 'tags'))
-            new_tags = [tag for tag in current_tags if tag not in ['installed', 'queued_installed']]
-            
-            if has_installed:
-                new_tags.append('installed')
-                if 'queued' in current_tags:
-                    new_tags.append('queued_installed')
-            
-            return {
-                'item_id': item_id,
-                'type': 'game',
-                'installed_text': installed_text,
-                'tags': tuple(new_tags)
-            }
-        except Exception as e:
-            logger.error(f"Error preparing cached game update for {item_id}: {e}")
-            return None
-    
-    def _prepare_cached_variant_update(self, item_id: str, game, platform: str):
-        """Prepare variant update using cached installation data"""
-        try:
-            if not self.game_tree.exists(item_id):
-                return None
-                
-            variant_key = self.game_tree.set(item_id, 'variant_key')
-            if not variant_key:
-                return None
-            
-            # Only look through filtered variants (same as tree building logic)
-            variants = game.get_variants_for_platform(platform)
-            filtered_variants = [rom for rom in variants if self.rom_matches_tags(rom)]
-            
-            # Find the ROM variant and use cached status
-            for rom in filtered_variants:
-                if rom.create_variant_key() == variant_key:
-                    is_installed = rom.is_installed()
-                    if is_installed is None:
-                        return None  # Cache not populated
-                    
-                    installed_text = "✓" if is_installed else ""
-                    
-                    # Determine visual tags
-                    current_tags = list(self.game_tree.item(item_id, 'tags'))
-                    new_tags = [tag for tag in current_tags if tag not in ['installed', 'queued_installed']]
-                    
-                    if is_installed:
-                        new_tags.append('installed')
-                        if 'queued' in current_tags:
-                            new_tags.append('queued_installed')
-                    
-                    return {
-                        'item_id': item_id,
-                        'type': 'variant',
-                        'installed_text': installed_text,
-                        'tags': tuple(new_tags)
-                    }
-            
-            return None
-        except Exception as e:
-            logger.error(f"Error preparing cached variant update for {item_id}: {e}")
-            return None
-    
-    def _async_update_tree_installation_status(self):
-        """Update tree installation status asynchronously in chunks"""
-        try:
-            if not self._gui_active or not self.current_games or self._async_update_cancelled:
-                return
-            
-            platform = self.current_platform.get()
-            if not platform:
-                return
-            
-            # Get all tree items to update
-            tree_items = list(self.game_tree.get_children())
-            total_items = len(tree_items)
-            
-            # Process in chunks to avoid blocking
-            chunk_size = 50  # Process 50 games at a time
-            processed = 0
-            
-            for i in range(0, total_items, chunk_size):
-                if not self._gui_active or self._async_update_cancelled:
-                    logger.info("Async tree update cancelled")
-                    break
-                
-                chunk = tree_items[i:i + chunk_size]
-                
-                # Process this chunk
-                updates = []
-                for item_id in chunk:
-                    try:
-                        # Check if item still exists (may have been deleted during platform change)
-                        if not self.game_tree.exists(item_id):
-                            continue
-                            
-                        game_key = self.game_tree.set(item_id, 'game_key')
-                        if game_key:
-                            # Find the game object
-                            game = None
-                            for g in self.current_games:
-                                if g.key == game_key:
-                                    game = g
-                                    break
-                            
-                            if game:
-                                # Prepare update data for this game and its variants
-                                game_update = self._prepare_game_installation_update(item_id, game, platform)
-                                if game_update:
-                                    updates.append(game_update)
-                                
-                                # Prepare updates for child variants
-                                for child_item in self.game_tree.get_children(item_id):
-                                    variant_update = self._prepare_variant_installation_update(child_item, game, platform)
-                                    if variant_update:
-                                        updates.append(variant_update)
-                    except Exception as e:
-                        logger.error(f"Error preparing update for tree item {item_id}: {e}")
-                
-                # Schedule GUI updates on main thread
-                if updates:
-                    self._safe_gui_update(lambda: self._apply_tree_updates(updates))
-                
-                processed += len(chunk)
-                
-                # Small delay between chunks to keep GUI responsive
-                import time
-                time.sleep(0.01)
-            
-            logger.info(f"Completed async tree installation status update for {processed} items")
-            
-        except Exception as e:
-            logger.error(f"Error in async tree installation status update: {e}")
-    
-    def _prepare_game_installation_update(self, item_id: str, game, platform: str):
-        """Prepare installation status update data for a game item"""
-        try:
-            # Check if item still exists
-            if not self.game_tree.exists(item_id):
-                return None
-                
-            variants = game.get_variants_for_platform(platform)
-            installed_variants = []
-            for rom in variants:
-                if self.is_rom_installed(rom, platform):
-                    installed_variants.append(rom)
-            
-            installed_text = "✓" if installed_variants else ""
-            
-            # Determine visual tags
-            current_tags = list(self.game_tree.item(item_id, 'tags'))
-            new_tags = [tag for tag in current_tags if tag not in ['installed', 'queued_installed']]
-            
-            if installed_variants:
-                new_tags.append('installed')
-                if 'queued' in current_tags:
-                    new_tags.append('queued_installed')
-            
-            return {
-                'item_id': item_id,
-                'type': 'game',
-                'installed_text': installed_text,
-                'tags': tuple(new_tags)
-            }
-        except Exception as e:
-            logger.error(f"Error preparing game update for {item_id}: {e}")
-            return None
-    
-    def _prepare_variant_installation_update(self, item_id: str, game, platform: str):
-        """Prepare installation status update data for a variant item"""
-        try:
-            # Check if item still exists
-            if not self.game_tree.exists(item_id):
-                return None
-                
-            variant_key = self.game_tree.set(item_id, 'variant_key')
-            if not variant_key:
-                return None
-            
-            # Find the ROM variant
-            variants = game.get_variants_for_platform(platform)
-            rom_variant = None
-            for rom in variants:
-                if rom.create_variant_key() == variant_key:
-                    rom_variant = rom
-                    break
-            
-            if not rom_variant:
-                return None
-            
-            is_installed = self.is_rom_installed(rom_variant, platform)
-            installed_text = "✓" if is_installed else ""
-            
-            # Determine visual tags
-            current_tags = list(self.game_tree.item(item_id, 'tags'))
-            new_tags = [tag for tag in current_tags if tag not in ['installed', 'queued_installed']]
-            
-            if is_installed:
-                new_tags.append('installed')
-                if 'queued' in current_tags:
-                    new_tags.append('queued_installed')
-            
-            return {
-                'item_id': item_id,
-                'type': 'variant',
-                'installed_text': installed_text,
-                'tags': tuple(new_tags)
-            }
-        except Exception as e:
-            logger.error(f"Error preparing variant update for {item_id}: {e}")
-            return None
-    
-    def _apply_tree_updates(self, updates):
-        """Apply a batch of tree updates on the main thread"""
-        try:
-            for update in updates:
-                if not self._gui_active:
-                    break
-                
-                item_id = update['item_id']
-                if not self.game_tree.exists(item_id):
-                    continue
-                
-                # Update the installed column
-                current_values = list(self.game_tree.item(item_id, 'values'))
-                current_values[1] = update['installed_text']  # Installed column
-                
-                # Apply the update
-                self.game_tree.item(item_id, values=tuple(current_values), tags=update['tags'])
-                
-        except Exception as e:
-            logger.error(f"Error applying tree updates: {e}")
-    
-    def _update_existing_tree_items_installation_status(self):
-        """Update installation status of existing tree items without full refresh"""
-        if not self.current_games:
-            return
-        
-        platform = self.current_platform.get()
-        if not platform:
-            return
-        
-        # Update all game items in the tree
-        for item_id in self.game_tree.get_children():
-            try:
-                game_key = self.game_tree.set(item_id, 'game_key')
-                if game_key:
-                    # Find the game object
-                    game = None
-                    for g in self.current_games:
-                        if g.key == game_key:
-                            game = g
-                            break
-                    
-                    if game:
-                        # Update the game item
-                        self._update_game_item_installation_status(item_id, game, platform)
-                        
-                        # Update child variant items
-                        for child_item in self.game_tree.get_children(item_id):
-                            self._update_variant_item_installation_status(child_item, game, platform)
-            except Exception as e:
-                logger.error(f"Error updating tree item {item_id}: {e}")
-    
-    def _update_game_item_installation_status(self, item_id: str, game, platform: str):
-        """Update installation status for a game item"""
-        try:
-            # Check if any variants are installed
-            variants = game.get_variants_for_platform(platform)
-            installed_variants = []
-            for rom in variants:
-                if self.is_rom_installed(rom, platform):
-                    installed_variants.append(rom)
-            
-            # Update installed column
-            current_values = list(self.game_tree.item(item_id, 'values'))
-            current_values[1] = "✓" if installed_variants else ""  # Installed column
-            
-            # Update visual tags
-            current_tags = list(self.game_tree.item(item_id, 'tags'))
-            if installed_variants:
-                if 'installed' not in current_tags:
-                    current_tags.append('installed')
-            else:
-                if 'installed' in current_tags:
-                    current_tags.remove('installed')
-            
-            # Check for queued_installed combination
-            if "queued" in current_tags and installed_variants:
-                if 'queued_installed' not in current_tags:
-                    current_tags.append('queued_installed')
-            else:
-                if 'queued_installed' in current_tags:
-                    current_tags.remove('queued_installed')
-            
-            self.game_tree.item(item_id, values=tuple(current_values), tags=tuple(current_tags))
-        except Exception as e:
-            logger.error(f"Error updating game item installation status: {e}")
-    
-    def _update_variant_item_installation_status(self, item_id: str, game, platform: str):
-        """Update installation status for a variant item"""
-        try:
-            variant_key = self.game_tree.set(item_id, 'variant_key')
-            if not variant_key:
-                return
-            
-            # Find the ROM variant
-            variants = game.get_variants_for_platform(platform)
-            rom_variant = None
-            for rom in variants:
-                if rom.create_variant_key() == variant_key:
-                    rom_variant = rom
-                    break
-            
-            if not rom_variant:
-                return
-            
-            # Check if this variant is installed
-            is_installed = self.is_rom_installed(rom_variant, platform)
-            
-            # Update installed column
-            current_values = list(self.game_tree.item(item_id, 'values'))
-            current_values[1] = "✓" if is_installed else ""  # Installed column
-            
-            # Update visual tags
-            current_tags = list(self.game_tree.item(item_id, 'tags'))
-            if is_installed:
-                if 'installed' not in current_tags:
-                    current_tags.append('installed')
-            else:
-                if 'installed' in current_tags:
-                    current_tags.remove('installed')
-            
-            # Check for queued_installed combination
-            if "queued" in current_tags and is_installed:
-                if 'queued_installed' not in current_tags:
-                    current_tags.append('queued_installed')
-            else:
-                if 'queued_installed' in current_tags:
-                    current_tags.remove('queued_installed')
-            
-            self.game_tree.item(item_id, values=tuple(current_values), tags=tuple(current_tags))
-        except Exception as e:
-            logger.error(f"Error updating variant item installation status: {e}")
-    
-    def _check_installed_complete(self, count: int):
-        """Handle installed ROM check completion"""
-        self.update_status(f"Found {count} installed ROMs")
-        self.refresh_game_list()
     
     def on_tree_click(self, event):
         """Handle tree click - only toggle queue on checkbox column click"""
@@ -1625,7 +972,7 @@ class GameLibraryGUI:
         # Refresh installed ROM cache
         platform = self.current_platform.get()
         if platform:
-            self.check_installed_roms()
+            self.installation_status_manager.check_installed_roms()
     
     def _installation_timeout_warning(self):
         """Handle installation timeout warning"""
@@ -1640,7 +987,7 @@ class GameLibraryGUI:
         # Refresh installed ROM cache
         platform = self.current_platform.get()
         if platform:
-            self.check_installed_roms()
+            self.installation_status_manager.check_installed_roms()
     
     def clear_selections(self):
         """Clear all queued items for current platform"""
@@ -1749,7 +1096,7 @@ class GameLibraryGUI:
                 self.state_manager.platform_dirty = True
             
             # Clear installed ROM cache
-            self.existing_roms.clear()
+            self.installation_status_manager.clear_existing_roms_cache()
             
             self.refresh_game_list()
             self.update_status("Cache cleared")

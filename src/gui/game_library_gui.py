@@ -5,7 +5,6 @@ Game library GUI with dynamic filtering and game-centric interface.
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import logging
-import subprocess
 import sys
 from typing import Dict, Set, List, Optional, Callable
 from pathlib import Path
@@ -25,6 +24,7 @@ from gui.managers.installation_status_manager import InstallationStatusManager
 from gui.managers.download_controller import DownloadController
 from gui.managers.search_filter_controller import SearchFilterController
 from gui.managers.tree_event_handler import TreeEventHandler
+from gui.managers.file_operations_manager import FileOperationsManager
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +52,7 @@ class GameLibraryGUI:
         self.download_controller = DownloadController(self)
         self.search_filter_controller = SearchFilterController(self)
         self.tree_event_handler = TreeEventHandler(self)
+        self.file_operations_manager = FileOperationsManager(self)
         
         # GUI state
         self.current_platform = tk.StringVar()
@@ -487,12 +488,12 @@ class GameLibraryGUI:
         # File menu
         file_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="File", menu=file_menu)
-        file_menu.add_command(label="Open Platform Config", command=self.open_platform_config)
-        file_menu.add_command(label="Open ROMs Folder", command=self.open_roms_folder)
-        file_menu.add_command(label="Open Temp Download Folder", command=self.open_temp_folder)
+        file_menu.add_command(label="Open Platform Config", command=self.file_operations_manager.open_platform_config)
+        file_menu.add_command(label="Open ROMs Folder", command=self.file_operations_manager.open_roms_folder)
+        file_menu.add_command(label="Open Temp Download Folder", command=self.file_operations_manager.open_temp_folder)
         file_menu.add_separator()
-        file_menu.add_command(label="Export Queue...", command=self.export_selections)
-        file_menu.add_command(label="Import Queue...", command=self.import_selections)
+        file_menu.add_command(label="Export Queue...", command=self.file_operations_manager.export_selections)
+        file_menu.add_command(label="Import Queue...", command=self.file_operations_manager.import_selections)
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self.root.quit)
         
@@ -500,8 +501,8 @@ class GameLibraryGUI:
         tools_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Tools", menu=tools_menu)
         # Removed Diagnose ROM Detection tool
-        tools_menu.add_command(label="Clear Cache", command=self.clear_cache)
-        tools_menu.add_command(label="Cleanup Temp Files", command=self.cleanup_temp_files)
+        tools_menu.add_command(label="Clear Cache", command=self.file_operations_manager.clear_cache)
+        tools_menu.add_command(label="Cleanup Temp Files", command=self.file_operations_manager.cleanup_temp_files)
         
         # Help menu
         help_menu = tk.Menu(menubar, tearoff=0)
@@ -783,127 +784,6 @@ class GameLibraryGUI:
         if hasattr(self, '_detached_items'):
             self._detached_items.clear()
     
-    def export_selections(self):
-        """Export download queue to file"""
-        platform = self.current_platform.get()
-        if not platform:
-            messagebox.showwarning("Warning", "Please select a platform first")
-            return
-        
-        filename = filedialog.asksaveasfilename(
-            defaultextension=".json",
-            filetypes=[("JSON files", "*.json")]
-        )
-        
-        if filename:
-            try:
-                self.state_manager.export_selections(platform, Path(filename))
-                messagebox.showinfo("Success", "Download queue exported successfully")
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to export queue: {e}")
-    
-    def import_selections(self):
-        """Import download queue from file"""
-        filename = filedialog.askopenfilename(
-            filetypes=[("JSON files", "*.json")]
-        )
-        
-        if filename:
-            try:
-                success = self.state_manager.import_selections(Path(filename))
-                if success:
-                    messagebox.showinfo("Success", "Download queue imported successfully")
-                    self.refresh_game_list()
-                else:
-                    messagebox.showerror("Error", "Failed to import queue")
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to import queue: {e}")
-    
-    def clear_cache(self):
-        """Clear application cache"""
-        if messagebox.askyesno("Confirm", "Clear all cached data?"):
-            # Clear state manager cache for current platform
-            if self.state_manager.platform_library:
-                self.state_manager.platform_library.games.clear()
-                self.state_manager.platform_library.tag_registry.clear()
-                self.state_manager.platform_dirty = True
-            
-            # Clear installed ROM cache
-            self.installation_status_manager.clear_existing_roms_cache()
-            
-            self.refresh_game_list()
-            self.update_status("Cache cleared")
-    
-    def cleanup_temp_files(self):
-        """Clean up temporary files"""
-        self.download_manager.cleanup_temp_files()
-        self.update_status("Temporary files cleaned up")
-    
-    def open_platform_config(self):
-        """Open the platform configuration file."""
-        config_file = self.config_manager.config_file
-        try:
-            if sys.platform.startswith('win'):
-                subprocess.run(['start', str(config_file)], shell=True, check=True)
-            elif sys.platform.startswith('darwin'):
-                subprocess.run(['open', str(config_file)], check=True)
-            else:
-                subprocess.run(['xdg-open', str(config_file)], check=True)
-        except subprocess.CalledProcessError:
-            messagebox.showerror("Error", f"Could not open config file: {config_file}")
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to open config file: {e}")
-    
-    def open_roms_folder(self):
-        """Open the ROMs folder for the currently selected platform."""
-        current_platform = self.current_platform.get()
-        if not current_platform:
-            messagebox.showwarning("No Platform", "Please select a platform first.")
-            return
-        
-        # Get the target path for the current platform
-        target_path = self.config_manager.get_target_directory(current_platform)
-        if not target_path:
-            messagebox.showerror("Configuration Error", 
-                               f"Target path not configured for platform: {current_platform}")
-            return
-        
-        # Ensure the directory exists
-        target_path.mkdir(parents=True, exist_ok=True)
-        
-        try:
-            if sys.platform.startswith('win'):
-                subprocess.run(['explorer', str(target_path)], check=True)
-            elif sys.platform.startswith('darwin'):
-                subprocess.run(['open', str(target_path)], check=True)
-            else:
-                subprocess.run(['xdg-open', str(target_path)], check=True)
-            
-            logger.info(f"Opened ROMs folder: {target_path}")
-            
-        except subprocess.CalledProcessError:
-            messagebox.showerror("Error", f"Could not open ROMs folder: {target_path}")
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to open ROMs folder: {e}")
-    
-    def open_temp_folder(self):
-        """Open the temporary download folder."""
-        temp_folder = self.download_manager.temp_dir
-        
-        # Ensure the temp directory exists
-        temp_folder.mkdir(parents=True, exist_ok=True)
-        
-        try:
-            if sys.platform.startswith('win'):
-                subprocess.run(['explorer', str(temp_folder)], check=True)
-            elif sys.platform.startswith('darwin'):
-                subprocess.run(['open', str(temp_folder)], check=True)
-            else:
-                subprocess.run(['xdg-open', str(temp_folder)], check=True)
-        except subprocess.CalledProcessError:
-            messagebox.showerror("Error", f"Could not open temp folder: {temp_folder}")
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to open temp folder: {e}")
     
     def show_about(self):
         """Show about dialog"""

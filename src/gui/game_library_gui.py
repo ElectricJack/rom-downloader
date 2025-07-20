@@ -951,8 +951,8 @@ class GameLibraryGUI:
                     for variant_key, variant_rom in game.variants.items():
                         if variant_rom.filename == rom.filename:
                             # Remove from queue
-                            self.state_manager.remove_selection(game.game_key, platform)
-                            logger.info(f"Removed {game.game_key} from queue after successful installation")
+                            self.state_manager.remove_selection(game.key, platform)
+                            logger.info(f"Removed {game.key} from queue after successful installation")
                             break
             
             # Refresh display to update installed status and queue status after copy completes

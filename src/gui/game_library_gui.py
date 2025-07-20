@@ -19,6 +19,7 @@ from scraper.web_scraper import WebScraper, RomInfo
 from rom_manager.rom_filter import RomFilter
 from filters.advanced_rom_filter import AdvancedRomFilter, FilterCriteria
 from gui.managers.tag_filter_manager import TagFilterManager
+from gui.managers.queue_manager import QueueManager
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,7 @@ class GameLibraryGUI:
         self.rom_filter = RomFilter()
         self.advanced_filter = AdvancedRomFilter()
         self.tag_filter_manager = TagFilterManager(self)
+        self.queue_manager = QueueManager(self)
         
         # GUI state
         self.current_platform = tk.StringVar()
@@ -192,184 +194,24 @@ class GameLibraryGUI:
     def create_context_menu(self):
         """Create right-click context menu"""
         self.context_menu = tk.Menu(self.root, tearoff=0)
-        self.context_menu.add_command(label="Add to Queue", command=self.add_to_queue)
-        self.context_menu.add_command(label="Remove from Queue", command=self.remove_from_queue)
+        self.context_menu.add_command(label="Add to Queue", command=self.queue_manager.add_to_queue)
+        self.context_menu.add_command(label="Remove from Queue", command=self.queue_manager.remove_from_queue)
         self.context_menu.add_separator()
-        self.context_menu.add_command(label="Add All Variants to Queue", command=self.add_all_variants_to_queue)
-        self.context_menu.add_command(label="Remove All Variants from Queue", command=self.remove_all_variants_from_queue)
+        self.context_menu.add_command(label="Add All Variants to Queue", command=self.queue_manager.add_all_variants_to_queue)
+        self.context_menu.add_command(label="Remove All Variants from Queue", command=self.queue_manager.remove_all_variants_from_queue)
         self.context_menu.add_separator()
-        self.context_menu.add_command(label="Select All", command=self.select_all_games)
-        self.context_menu.add_command(label="Select None", command=self.select_none_games)
+        self.context_menu.add_command(label="Select All", command=self.queue_manager.select_all_games)
+        self.context_menu.add_command(label="Select None", command=self.queue_manager.select_none_games)
     
-    def add_to_queue(self):
-        """Add selected items to download queue via context menu"""
-        selections = self.game_tree.selection()
-        if not selections:
-            return
-        
-        platform = self.current_platform.get()
-        if not platform:
-            return
-        
-        # Use batch mode to prevent auto-save during bulk operations
-        with self.state_manager:
-            # Track which games were modified for batch updates
-            modified_games = set()
-            
-            # Process all selected items
-            for item in selections:
-                try:
-                    item_type = self.game_tree.set(item, 'item_type')
-                    game_key = self.game_tree.set(item, 'game_key')
-                    variant_key = self.game_tree.set(item, 'variant_key')
-                except:
-                    continue
-                
-                if item_type == 'game':
-                    if self.add_game_to_queue_batch(game_key, platform):
-                        modified_games.add(game_key)
-                elif item_type == 'variant':
-                    if self.add_variant_to_queue_batch(game_key, platform, variant_key):
-                        modified_games.add(game_key)
-        
-        # Update all modified games in batch
-        self.update_game_tree_items_batch(modified_games, platform)
     
-    def add_game_to_queue_batch(self, game_key: str, platform: str) -> bool:
-        """Add a game to download queue (batch operation, returns True if modified)"""
-        # Find game
-        game = None
-        for g in self.current_games:
-            if g.key == game_key:
-                game = g
-                break
-        
-        if not game:
-            return False
-        
-        # Check if already queued
-        current_selection = self.state_manager.get_selection(game_key, platform)
-        if current_selection:
-            return False  # Already queued
-        
-        # Add to queue - pick best variant
-        variants = game.get_variants_for_platform(platform)
-        if variants:
-            best_variant = game.get_best_variant(platform, self.config_manager.get_preferred_regions())
-            if best_variant:
-                variant_key = best_variant.create_variant_key()
-                self.state_manager.select_rom_variant(game_key, platform, variant_key)
-                return True
-        
-        return False
     
-    def add_variant_to_queue_batch(self, game_key: str, platform: str, variant_key: str) -> bool:
-        """Add a specific variant to download queue (batch operation, returns True if modified)"""
-        # Check if already queued with this variant
-        current_selection = self.state_manager.get_selection(game_key, platform)
-        if current_selection and current_selection.selected_rom_variant == variant_key:
-            return False  # Already queued with this variant
-        
-        self.state_manager.select_rom_variant(game_key, platform, variant_key)
-        return True
     
-    def remove_from_queue(self):
-        """Remove selected items from download queue via context menu"""
-        selections = self.game_tree.selection()
-        if not selections:
-            return
-        
-        platform = self.current_platform.get()
-        if not platform:
-            return
-        
-        # Use batch mode to prevent auto-save during bulk operations
-        with self.state_manager:
-            # Process all selected items
-            for item in selections:
-                try:
-                    item_type = self.game_tree.set(item, 'item_type')
-                    game_key = self.game_tree.set(item, 'game_key')
-                    variant_key = self.game_tree.set(item, 'variant_key')
-                except:
-                    continue
-                
-                if item_type in ['game', 'variant']:
-                    # Remove from queue regardless of whether it's game or variant level
-                    selection_key = f"{platform}:{game_key}"
-                    if selection_key in self.state_manager.selections:
-                        del self.state_manager.selections[selection_key]
-                        self.state_manager.selections_dirty = True
-        
-        # Update all affected items in batch
-        processed_games = set()
-        for item in selections:
-            try:
-                game_key = self.game_tree.set(item, 'game_key')
-                if game_key:
-                    processed_games.add(game_key)
-            except:
-                continue
-        
-        # Use batch update for better performance
-        self.update_game_tree_items_batch(processed_games, platform)
     
-    def add_all_variants_to_queue(self):
-        """Add all variants of selected games to queue"""
-        selections = self.game_tree.selection()
-        if not selections:
-            return
-        
-        platform = self.current_platform.get()
-        if not platform:
-            return
-        
-        # Process all selected items
-        processed_games = set()
-        for item in selections:
-            try:
-                game_key = self.game_tree.set(item, 'game_key')
-                if game_key and game_key not in processed_games:
-                    self.add_game_to_queue(game_key, platform)
-                    processed_games.add(game_key)
-            except:
-                continue
     
-    def remove_all_variants_from_queue(self):
-        """Remove all variants of selected games from queue"""
-        # This is the same as regular remove for our current implementation
-        self.remove_from_queue()
     
-    def select_all_games(self):
-        """Select all visible items in the tree (highlight all rows)"""
-        # Get all items from the tree (games and variants)
-        all_items = []
-        for item_id in self.game_tree.get_children():
-            all_items.append(item_id)
-            # Also add child variants
-            for child_id in self.game_tree.get_children(item_id):
-                all_items.append(child_id)
-        
-        # Select all items in the tree
-        if all_items:
-            self.game_tree.selection_set(all_items)
     
-    def select_none_games(self):
-        """Clear all selected items in the tree (remove highlight from all rows)"""
-        # Clear all tree selections
-        self.game_tree.selection_remove(self.game_tree.selection())
     
-    def add_game_to_queue(self, game_key: str, platform: str):
-        """Add a game to download queue (selects best variant)"""
-        if self.add_game_to_queue_batch(game_key, platform):
-            self.state_manager.save_selections()
-            self.update_game_tree_item(game_key, platform)
     
-    def add_variant_to_queue(self, game_key: str, platform: str, variant_key: str):
-        """Add a specific variant to download queue"""
-        if self.add_variant_to_queue_batch(game_key, platform, variant_key):
-            self.state_manager.save_selections()
-            self.update_game_tree_item(game_key, platform)
     
     def update_game_tree_item(self, game_key: str, platform: str):
         """Update a specific game's tree items without full refresh"""
@@ -1794,62 +1636,12 @@ class GameLibraryGUI:
             return
         
         if item_type == 'game':
-            self.toggle_game_queue(game_key, platform)
+            self.queue_manager.toggle_game_queue_status(game_key, platform)
         elif item_type == 'variant':
             # Variants cannot be queued individually - ignore click
             return
     
-    def toggle_game_queue(self, game_key: str, platform: str):
-        """Toggle queue status for a game (auto-select best variant)"""
-        # Find game
-        game = None
-        for g in self.current_games:
-            if g.key == game_key:
-                game = g
-                break
-        
-        if not game:
-            return
-        
-        # Toggle queue status
-        current_selection = self.state_manager.get_selection(game_key, platform)
-        
-        if current_selection:
-            # Remove from queue
-            selection_key = f"{platform}:{game_key}"
-            if selection_key in self.state_manager.selections:
-                del self.state_manager.selections[selection_key]
-                self.state_manager.selections_dirty = True
-                self.state_manager.save_selections()
-        else:
-            # Add to queue - pick best variant
-            variants = game.get_variants_for_platform(platform)
-            if variants:
-                best_variant = game.get_best_variant(platform, self.config_manager.get_preferred_regions())
-                if best_variant:
-                    variant_key = best_variant.create_variant_key()
-                    self.state_manager.select_rom_variant(game_key, platform, variant_key)
-        
-        # Update only the affected tree items instead of full refresh
-        self.update_game_tree_item(game_key, platform)
     
-    def toggle_variant_queue(self, game_key: str, platform: str, variant_key: str):
-        """Toggle queue status for a specific variant"""
-        current_selection = self.state_manager.get_selection(game_key, platform)
-        
-        if current_selection and current_selection.selected_rom_variant == variant_key:
-            # Remove this variant from queue
-            selection_key = f"{platform}:{game_key}"
-            if selection_key in self.state_manager.selections:
-                del self.state_manager.selections[selection_key]
-                self.state_manager.selections_dirty = True
-                self.state_manager.save_selections()
-        else:
-            # Add this variant to queue
-            self.state_manager.select_rom_variant(game_key, platform, variant_key)
-        
-        # Update only the affected tree items instead of full refresh
-        self.update_game_tree_item(game_key, platform)
     
     def on_tree_right_click(self, event):
         """Handle right-click context menu"""

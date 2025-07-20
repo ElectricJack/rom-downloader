@@ -23,6 +23,7 @@ from gui.managers.queue_manager import QueueManager
 from gui.managers.game_tree_manager import GameTreeManager
 from gui.managers.installation_status_manager import InstallationStatusManager
 from gui.managers.download_controller import DownloadController
+from gui.managers.search_filter_controller import SearchFilterController
 
 logger = logging.getLogger(__name__)
 
@@ -48,13 +49,14 @@ class GameLibraryGUI:
         self.game_tree_manager = GameTreeManager(self)
         self.installation_status_manager = InstallationStatusManager(self)
         self.download_controller = DownloadController(self)
+        self.search_filter_controller = SearchFilterController(self)
         
         # GUI state
         self.current_platform = tk.StringVar()
         self.current_platform.trace('w', self.on_platform_change)
         
         self.search_query = tk.StringVar()
-        self.search_query.trace('w', self.on_search_change)
+        self.search_query.trace('w', self.search_filter_controller.on_search_change)
         
         # UI components
         self.game_tree = None
@@ -73,8 +75,9 @@ class GameLibraryGUI:
         # Set up managers
         self._setup_managers()
         
-        # Set up tag filter manager callback
+        # Set up manager callbacks
         self.tag_filter_manager.set_filters_changed_callback(self.apply_filters_to_tree)
+        self.search_filter_controller.set_filters_changed_callback(self.apply_filters_to_tree)
         
         self.restore_last_state()
         
@@ -589,10 +592,6 @@ class GameLibraryGUI:
     
     
     
-    def on_search_change(self, *_args):
-        """Handle search text change"""
-        # Use fast filtering instead of full refresh
-        self.apply_filters_to_tree()
     
     def refresh_game_list(self):
         """Refresh the game list display"""
@@ -610,56 +609,15 @@ class GameLibraryGUI:
     
     def apply_filters(self, games: List[Game]) -> List[Game]:
         """Apply current filters to game list"""
-        filtered_games = games
-        
-        # Apply tag filters (both checkbox and custom tags)
-        all_active_filters = self.tag_filter_manager.get_active_filters()
-        if all_active_filters:
-            filtered_games = [
-                game for game in filtered_games
-                if self.game_matches_tags(game, all_active_filters)
-            ]
-        
-        # Apply search filter
-        search_query = self.search_query.get().lower()
-        if search_query:
-            filtered_games = [
-                game for game in filtered_games
-                if search_query in game.display_name.lower()
-            ]
-        
-        return filtered_games
+        return self.search_filter_controller.apply_filters(games)
     
     def game_matches_tags(self, game: Game, filter_tags: Set[str] = None) -> bool:
         """Check if game matches current tag filters using advanced filtering logic"""
-        if filter_tags is None:
-            # Use all active filters (both checkbox and custom)
-            filter_tags = self.tag_filter_manager.get_active_filters()
-        
-        if not filter_tags:
-            return True
-            
-        # Create filter criteria from selected tags
-        criteria = self.advanced_filter.create_filter_criteria(filter_tags)
-        
-        # Check if game matches criteria using all its tags
-        game_tags = game.get_all_tags()
-        return self.advanced_filter.rom_matches_criteria(game_tags, criteria)
+        return self.search_filter_controller.game_matches_tags(game, filter_tags)
     
     def rom_matches_tags(self, rom, filter_tags: Set[str] = None) -> bool:
         """Check if ROM variant matches current tag filters using advanced filtering logic"""
-        if filter_tags is None:
-            # Use all active filters (both checkbox and custom)
-            filter_tags = self.tag_filter_manager.get_active_filters()
-        
-        if not filter_tags:
-            return True
-            
-        # Create filter criteria from selected tags
-        criteria = self.advanced_filter.create_filter_criteria(filter_tags)
-        
-        # Check if ROM matches criteria
-        return self.advanced_filter.rom_matches_criteria(rom.tags, criteria)
+        return self.search_filter_controller.rom_matches_tags(rom, filter_tags)
     
     def add_game_to_tree(self, game: Game, platform: str):
         """Add a game and its variants to the treeview"""

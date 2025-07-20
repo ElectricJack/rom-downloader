@@ -22,6 +22,7 @@ from gui.managers.tag_filter_manager import TagFilterManager
 from gui.managers.queue_manager import QueueManager
 from gui.managers.game_tree_manager import GameTreeManager
 from gui.managers.installation_status_manager import InstallationStatusManager
+from gui.managers.download_controller import DownloadController
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,7 @@ class GameLibraryGUI:
         self.queue_manager = QueueManager(self)
         self.game_tree_manager = GameTreeManager(self)
         self.installation_status_manager = InstallationStatusManager(self)
+        self.download_controller = DownloadController(self)
         
         # GUI state
         self.current_platform = tk.StringVar()
@@ -63,13 +65,13 @@ class GameLibraryGUI:
         
         # Data
         self.current_games = []
-        self.downloading = False
         self._gui_active = True  # Flag to track if GUI is still active
-        self.installation_count = 0  # Track completed installations
-        self.total_queued_count = 0  # Track total ROMs queued for download
         
         self.setup_ui()
         self.refresh_platform_list()
+        
+        # Set up managers
+        self._setup_managers()
         
         # Set up tag filter manager callback
         self.tag_filter_manager.set_filters_changed_callback(self.apply_filters_to_tree)
@@ -77,6 +79,18 @@ class GameLibraryGUI:
         self.restore_last_state()
         
         logger.info("Game library GUI initialized")
+    
+    def _setup_managers(self):
+        """Set up manager dependencies after UI is created"""
+        # Set up download controller with UI components and managers
+        self.download_controller.set_ui_components(
+            self.progress_bar, self.copy_progress_bar,
+            self.status_label, self.copy_status_label,
+            self.cancel_install_button
+        )
+        self.download_controller.set_managers(
+            self.download_manager, self.state_manager, self.config_manager
+        )
     
     def setup_ui(self):
         """Set up the user interface"""
@@ -128,14 +142,14 @@ class GameLibraryGUI:
         self.check_installed_button = ttk.Button(top_frame, text="Check Installed", command=self.installation_status_manager.check_installed_roms)
         self.check_installed_button.pack(side=tk.LEFT, padx=(0, 5))
         
-        self.install_queue_button = ttk.Button(top_frame, text="Install Games in Queue", command=self.download_selected)
+        self.install_queue_button = ttk.Button(top_frame, text="Install Games in Queue", command=self.download_controller.download_selected)
         self.install_queue_button.pack(side=tk.LEFT, padx=(0, 5))
         
         self.clear_queue_button = ttk.Button(top_frame, text="Clear Queue", command=self.clear_selections)
         self.clear_queue_button.pack(side=tk.LEFT, padx=(0, 5))
         
         # Cancel Install button (initially disabled)
-        self.cancel_install_button = ttk.Button(top_frame, text="Cancel Install", command=self.cancel_download, state="disabled")
+        self.cancel_install_button = ttk.Button(top_frame, text="Cancel Install", command=self.download_controller.cancel_download, state="disabled")
         self.cancel_install_button.pack(side=tk.LEFT)
     
     
@@ -681,7 +695,7 @@ class GameLibraryGUI:
     def toggle_queue_status(self, event):
         """Toggle queue status for game or variant"""
         # Prevent queue modifications during download
-        if self.downloading:
+        if self.download_controller.is_downloading():
             return
             
         item = self.game_tree.identify_row(event.y)
@@ -710,7 +724,7 @@ class GameLibraryGUI:
     def on_tree_right_click(self, event):
         """Handle right-click context menu"""
         # Prevent context menu during download
-        if self.downloading:
+        if self.download_controller.is_downloading():
             return
             
         item = self.game_tree.identify_row(event.y)
@@ -728,7 +742,7 @@ class GameLibraryGUI:
             messagebox.showwarning("Warning", "Please select a platform first")
             return
         
-        if self.downloading:
+        if self.download_controller.is_downloading():
             messagebox.showwarning("Warning", "Download in progress")
             return
         
@@ -792,202 +806,13 @@ class GameLibraryGUI:
         self.tag_filter_manager.update_tag_buttons(platform, categorized_tags)
         self.refresh_game_list()
     
-    def download_selected(self):
-        """Download queued ROMs"""
-        platform = self.current_platform.get()
-        if not platform:
-            messagebox.showwarning("Warning", "Please select a platform first")
-            return
-        
-        if self.downloading:
-            messagebox.showwarning("Warning", "Download already in progress")
-            return
-        
-        # Get queued ROMs
-        selected_roms = self.state_manager.get_selected_roms(platform)
-        
-        if not selected_roms:
-            messagebox.showinfo("Info", "No ROMs queued for download")
-            return
-        
-        # Filter out already installed ROMs using cached data for speed
-        roms_to_download = []
-        already_installed = []
-        
-        for rom in selected_roms:
-            # Use cached installation status to avoid expensive real-time checks
-            cached_status = rom.is_installed()
-            if cached_status is True:
-                already_installed.append(rom.filename)
-            else:
-                # If not cached as installed, include it in download queue
-                # Real installation check will happen during actual download process
-                # This avoids expensive network checks that slow down the dialog
-                roms_to_download.append(rom)
-        
-        # Inform user about already installed ROMs
-        if already_installed:
-            skipped_count = len(already_installed)
-            message = f"Skipping {skipped_count} ROM(s) that are already installed:\n\n"
-            message += "\n".join(already_installed[:10])  # Show first 10
-            if len(already_installed) > 10:
-                message += f"\n... and {len(already_installed) - 10} more"
-            messagebox.showinfo("ROMs Already Installed", message)
-        
-        if not roms_to_download:
-            messagebox.showinfo("Nothing to Download", "All queued ROMs are already installed.")
-            return
-        
-        # Confirm download
-        if not messagebox.askyesno("Confirm Download", f"Download {len(roms_to_download)} ROMs from queue?"):
-            return
-        
-        self.downloading = True
-        self._set_download_ui_state(downloading=True)
-        self.update_status("Starting download...")
-        self.update_copy_status("")  # Clear copy status at start
-        
-        # Start download in separate thread
-        import threading
-        thread = threading.Thread(target=self._download_thread, args=(roms_to_download, platform))
-        thread.daemon = True
-        thread.start()
     
-    def _download_thread(self, roms: List[ROM], platform: str):
-        """Download ROMs in a separate thread"""
-        try:
-            # Check if GUI is still active
-            if not self._gui_active:
-                return
-            
-            # Initialize tracking variables
-            self.installation_count = 0
-            self.total_queued_count = len(roms)
-                
-            def progress_callback(rom: ROM, progress: DownloadProgress):
-                self._safe_gui_update(lambda: self._update_download_progress(rom, progress))
-            
-            def completion_callback(rom: ROM, result: DownloadResult):
-                self._safe_gui_update(lambda: self._update_download_completion(rom, result))
-            
-            def copy_progress_callback(rom: ROM, progress: DownloadProgress):
-                self._safe_gui_update(lambda: self._update_copy_progress(rom, progress))
-            
-            def copy_completion_callback(rom: ROM, result: DownloadResult):
-                self._safe_gui_update(lambda: self._update_copy_completion(rom, result))
-            
-            # Start download with separate copy callbacks
-            results = self.download_manager.download_roms(
-                roms, platform, progress_callback, completion_callback,
-                copy_progress_callback, copy_completion_callback
-            )
-            
-            # Wait for all copies to complete, then show final results
-            self._safe_gui_update(lambda: self.update_status("Downloads complete, waiting for all copies to finish..."))
-            
-            # Wait for all pending copies to complete
-            all_copies_complete = self.download_manager.wait_for_all_copies_complete(timeout=300)  # 5 minute timeout
-            
-            if all_copies_complete:
-                self._safe_gui_update(lambda: self._installation_complete())
-            else:
-                # Timeout occurred, show warning
-                self._safe_gui_update(lambda: self._installation_timeout_warning())
-            
-        except Exception as e:
-            logger.error(f"Error during download: {e}")
-            self._safe_gui_update(lambda: self.update_status(f"Download error: {e}"))
-        finally:
-            self.downloading = False
-            self._safe_gui_update(lambda: self._set_download_ui_state(downloading=False))
     
-    def _update_download_progress(self, rom: ROM, progress: DownloadProgress):
-        """Update download progress in UI"""
-        if progress.operation == "downloading":
-            self.progress_bar['value'] = progress.percentage
-            self.update_status(f"Downloading {rom.filename} - {progress.percentage:.1f}% ({progress.speed_formatted})")
-        elif progress.operation == "processing":
-            if progress.total_bytes > 0:
-                # Show pipeline step progress
-                step_percentage = (progress.current_bytes / progress.total_bytes) * 100
-                self.progress_bar['value'] = step_percentage
-                self.update_status(f"Processing {rom.filename} - {progress.step} (step {progress.current_bytes + 1}/{progress.total_bytes})")
-            else:
-                # Indeterminate progress for processing
-                self.progress_bar.configure(mode='indeterminate')
-                self.progress_bar.start()
-                self.update_status(f"Processing {rom.filename} - {progress.step}")
     
-    def _update_download_completion(self, rom: ROM, result: DownloadResult):
-        """Update download completion in UI"""
-        # Reset progress bar to determinate mode in case it was in indeterminate mode
-        self.progress_bar.stop()
-        self.progress_bar.configure(mode='determinate')
-        
-        if result.success:
-            self.update_status(f"Downloaded: {rom.filename}")
-            # Note: Don't refresh here as copy is still in progress
-        else:
-            self.update_status(f"Failed: {rom.filename} - {result.error_message}")
     
-    def _update_copy_progress(self, rom: ROM, progress: DownloadProgress):
-        """Update network copy progress in UI (separate from download progress)"""
-        # Use the dedicated copy progress bar
-        self.copy_progress_bar['value'] = progress.percentage
-        self.update_copy_status(f"Copying {rom.clean_name} - {progress.percentage:.1f}% ({progress.speed_formatted})")
     
-    def _update_copy_completion(self, rom: ROM, result: DownloadResult):
-        """Update copy completion in UI"""
-        if result.success:
-            self.copy_progress_bar['value'] = 100  # Show completion briefly
-            self.update_copy_status(f"Installed: {rom.clean_name}")
-            self.installation_count += 1
-            
-            # Remove ROM from selection queue after successful installation
-            platform = self.current_platform.get()
-            if platform:
-                # Find the game key for this ROM
-                for game in self.current_games:
-                    for variant_key, variant_rom in game.variants.items():
-                        if variant_rom.filename == rom.filename:
-                            # Remove from queue
-                            self.state_manager.remove_selection(game.key, platform)
-                            logger.info(f"Removed {game.key} from queue after successful installation")
-                            break
-            
-            # Refresh display to update installed status and queue status after copy completes
-            self.refresh_game_list()
-        else:
-            self.copy_progress_bar['value'] = 0  # Reset on failure
-            self.update_copy_status(f"Installation failed: {rom.clean_name} - {result.error_message}")
     
-    def _installation_complete(self):
-        """Handle installation completion"""
-        self.progress_bar['value'] = 0
-        self.copy_progress_bar['value'] = 0
-        self.update_status(f"Installation complete: {self.installation_count}/{self.total_queued_count} successful")
-        self.update_copy_status("")  # Clear copy status
-        messagebox.showinfo("Installation Complete", f"Successfully installed {self.installation_count} out of {self.total_queued_count} ROMs")
-        
-        # Refresh installed ROM cache
-        platform = self.current_platform.get()
-        if platform:
-            self.installation_status_manager.check_installed_roms()
     
-    def _installation_timeout_warning(self):
-        """Handle installation timeout warning"""
-        self.progress_bar['value'] = 0
-        self.copy_progress_bar['value'] = 0
-        self.update_status(f"Installation timeout: {self.installation_count}/{self.total_queued_count} completed")
-        self.update_copy_status("")  # Clear copy status
-        messagebox.showwarning("Installation Timeout", 
-                              f"Installation process timed out. {self.installation_count} out of {self.total_queued_count} ROMs completed.\n"
-                              "Some copies may still be in progress.")
-        
-        # Refresh installed ROM cache
-        platform = self.current_platform.get()
-        if platform:
-            self.installation_status_manager.check_installed_roms()
     
     def clear_selections(self):
         """Clear all queued items for current platform"""
@@ -1222,11 +1047,6 @@ Usage:
         for child in self.tree.get_children(item):
             self._set_tree_item_state(child, downloading)
     
-    def cancel_download(self):
-        """Cancel ongoing download"""
-        if hasattr(self, 'download_manager') and self.download_manager:
-            self.download_manager.cancel_downloads()
-            self.update_status("Cancelling download...")
     
     def update_status(self, message: str):
         """Update download status label"""

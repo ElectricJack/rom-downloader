@@ -30,7 +30,10 @@
       "Bash(timeout 30 python3 run_tests.py basic)",
       "Bash(timeout:*)",
       "Bash(git mv:*)",
-      "Bash(mv:*)"
+      "Bash(mv:*)",
+      "Bash(pip install:*)",
+      "Bash(vulture:*)",
+      "Bash(git rm:*)"
     ],
     "deny": []
   }

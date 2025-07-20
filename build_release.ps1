@@ -295,20 +295,20 @@ function New-ReleasePackage {
     }
     
     # Create launcher script
-    $launcherContent = @"
-@echo off
-title $($appConfig.name)
-echo Starting $($appConfig.name)...
-$exeName
-if errorlevel 1 (
-    echo.
-    echo Application exited with error. Press any key to close.
-    pause >nul
-)
-"@
+    $launcherLines = @(
+        "@echo off",
+        "title $($appConfig.name)",
+        "echo Starting $($appConfig.name)...",
+        "$exeName",
+        "if errorlevel 1 (",
+        "    echo.",
+        "    echo Application exited with error. Press any key to close.",
+        "    pause >nul",
+        ")"
+    )
     
     $launcherPath = Join-Path $releaseDir "launch.bat"
-    Set-Content -Path $launcherPath -Value $launcherContent
+    Set-Content -Path $launcherPath -Value ($launcherLines -join "`r`n")
     Write-ColorMessage "Created launcher script" "INFO"
     
     # Create ZIP archive if requested

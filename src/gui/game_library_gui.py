@@ -644,6 +644,12 @@ class GameLibraryGUI:
                 
             logger.info(f"=== on_platform_change() to {platform} ({display_name}) ===")
             
+            # Load platform library in state manager to prepare for ROM operations
+            load_start = time.time()
+            self.state_manager.load_platform_library(platform)
+            load_time = time.time() - load_start
+            logger.info(f"load_platform_library() took {load_time:.2f}s")
+            
             # Save the last selected platform (using the key)
             save_start = time.time()
             self.state_manager.set_last_selected_platform(platform)

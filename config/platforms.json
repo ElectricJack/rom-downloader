@@ -439,6 +439,17 @@
       "file_pattern": ".*\\.(a78|bin|zip|7z)$",
       "extract_archives": true
     },
+    "Atari7800Archive": {
+      "name": "Atari 7800 (Archive.org)",
+      "url": "https://archive.org/download/nointro.atari-7800",
+      "target_folder": "atari7800",
+      "file_extensions": [
+        ".7z",
+        ".zip"
+      ],
+      "file_pattern": ".*\\.(7z|zip)$",
+      "extract_archives": true
+    },
     "PCEngineHuCard": {
       "name": "NEC PC Engine / TurboGrafx-16",
       "url": "https://myrient.erista.me/files/No-Intro/NEC%20-%20PC%20Engine%20-%20TurboGrafx-16/",

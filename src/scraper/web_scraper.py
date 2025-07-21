@@ -107,71 +107,16 @@ class WebScraper:
             
             roms = []
             
-            # Look for file links - common patterns for directory listings
-            links_start = time.time()
-            file_links = soup.find_all('a', href=True)
-            links_time = time.time() - links_start
-            logger.info(f"Found {len(file_links)} links in {links_time:.2f}s")
+            # Check if this is an archive.org page
+            is_archive_org = 'archive.org' in url
             
-            processed_count = 0
-            matched_count = 0
-            
-            for i, link in enumerate(file_links):
-                if i % 100 == 0 and i > 0:  # Log progress every 100 links
-                    logger.info(f"Processed {i}/{len(file_links)} links, found {matched_count} matches so far")
-                
-                href = link.get('href')
-                if not href or href.startswith('../') or href == '/':
-                    continue
-                
-                processed_count += 1
-                
-                # Get the full URL
-                full_url = urljoin(url, href)
-                
-                # Extract file name from href or link text
-                file_name = href.strip('/')
-                if not file_name:
-                    file_name = link.get_text().strip()
-                
-                # Skip directories
-                if href.endswith('/'):
-                    continue
-                
-                # Apply file pattern filter if provided
-                if file_pattern:
-                    if not re.search(file_pattern, file_name, re.IGNORECASE):
-                        continue
-                
-                matched_count += 1
-                
-                # Extract file size if available
-                size_text = ""
-                # Look for size information in the same row or nearby
-                parent = link.parent
-                if parent:
-                    size_match = re.search(r'(\d+(?:\.\d+)?\s*[KMGT]?B)', parent.get_text())
-                    if size_match:
-                        size_text = size_match.group(1)
-                
-                # Determine file type
-                file_type = ""
-                if '.' in file_name:
-                    file_type = file_name.split('.')[-1].upper()
-                
-                rom_info = RomInfo(
-                    name=file_name,
-                    url=full_url,
-                    size=size_text,
-                    file_type=file_type
-                )
-                
-                roms.append(rom_info)
-                if len(roms) <= 10:  # Log first 10 ROMs found
-                    logger.info(f"Found ROM: {rom_info.clean_name} ({rom_info.size}, {rom_info.file_type})")
+            if is_archive_org:
+                roms = self._scrape_archive_org(soup, url, file_pattern)
+            else:
+                roms = self._scrape_generic(soup, url, file_pattern)
             
             total_time = time.time() - start_time
-            logger.info(f"Scraping completed in {total_time:.2f}s - processed {processed_count} files, found {len(roms)} ROM files")
+            logger.info(f"Scraping completed in {total_time:.2f}s - found {len(roms)} ROM files")
             return roms
             
         except requests.RequestException as e:
@@ -180,6 +125,176 @@ class WebScraper:
         except Exception as e:
             logger.error(f"Unexpected error scraping URL {url}: {e}", exc_info=True)
             return []
+    
+    def _scrape_archive_org(self, soup: BeautifulSoup, base_url: str, file_pattern: str = None) -> List[RomInfo]:
+        """Scrape ROM files from archive.org download pages."""
+        roms = []
+        
+        # Archive.org uses a table or div structure for file listings
+        # Look for links that point to downloadable files
+        file_links = soup.find_all('a', href=True)
+        
+        logger.info(f"Found {len(file_links)} links on archive.org page")
+        
+        processed_count = 0
+        matched_count = 0
+        
+        for i, link in enumerate(file_links):
+            if i % 50 == 0 and i > 0:
+                logger.info(f"Processed {i}/{len(file_links)} links, found {matched_count} matches so far")
+            
+            href = link.get('href')
+            if not href:
+                continue
+                
+            # Skip navigation links, view links, and other non-download links
+            if (href.startswith('#') or href.startswith('javascript:') or 
+                href.startswith('/') or href.startswith('..') or
+                'view' in href.lower() or 'torrent' in href.lower() or
+                href.endswith('/') or  # Skip directory links
+                href.startswith('http') and 'archive.org' not in href):
+                continue
+            
+            processed_count += 1
+            
+            # Get file name - archive.org links are usually direct file names
+            file_name = href.strip('/')
+            if not file_name:
+                file_name = link.get_text().strip()
+                
+            # Skip if it's clearly not a file
+            if not file_name or '.' not in file_name:
+                continue
+                
+            # Apply file pattern filter if provided
+            if file_pattern:
+                if not re.search(file_pattern, file_name, re.IGNORECASE):
+                    continue
+            
+            matched_count += 1
+            
+            # Build full download URL for archive.org
+            if href.startswith('http'):
+                full_url = href
+            else:
+                # For archive.org, construct direct download URL
+                # The base URL format is: https://archive.org/download/collection-name
+                # We need to build: https://archive.org/download/collection-name/filename
+                if '/download/' in base_url:
+                    # Extract collection name from base URL
+                    collection_part = base_url.split('/download/')[-1].rstrip('/')
+                    full_url = f"https://archive.org/download/{collection_part}/{href}"
+                else:
+                    full_url = urljoin(base_url, href)
+            
+            # Extract file size from the page context
+            size_text = ""
+            # Look for size in the same table row or nearby elements
+            parent_row = link.find_parent('tr')
+            if parent_row:
+                # Look for size patterns in the row text
+                row_text = parent_row.get_text()
+                size_match = re.search(r'(\d+(?:\.\d+)?\s*[KMGT]?B)', row_text)
+                if size_match:
+                    size_text = size_match.group(1)
+            
+            # If no size found in table row, check parent elements
+            if not size_text:
+                parent = link.parent
+                if parent:
+                    size_match = re.search(r'(\d+(?:\.\d+)?\s*[KMGT]?B)', parent.get_text())
+                    if size_match:
+                        size_text = size_match.group(1)
+            
+            # Determine file type
+            file_type = ""
+            if '.' in file_name:
+                file_type = file_name.split('.')[-1].upper()
+            
+            rom_info = RomInfo(
+                name=file_name,
+                url=full_url,
+                size=size_text,
+                file_type=file_type
+            )
+            
+            roms.append(rom_info)
+            if len(roms) <= 10:
+                logger.info(f"Found archive.org ROM: {rom_info.clean_name} ({rom_info.size}, {rom_info.file_type})")
+        
+        logger.info(f"Archive.org scraping - processed {processed_count} files, found {len(roms)} ROM files")
+        return roms
+    
+    def _scrape_generic(self, soup: BeautifulSoup, base_url: str, file_pattern: str = None) -> List[RomInfo]:
+        """Scrape ROM files from generic directory listing pages."""
+        import time
+        roms = []
+        
+        # Look for file links - common patterns for directory listings
+        links_start = time.time()
+        file_links = soup.find_all('a', href=True)
+        links_time = time.time() - links_start
+        logger.info(f"Found {len(file_links)} links in {links_time:.2f}s")
+        
+        processed_count = 0
+        matched_count = 0
+        
+        for i, link in enumerate(file_links):
+            if i % 100 == 0 and i > 0:  # Log progress every 100 links
+                logger.info(f"Processed {i}/{len(file_links)} links, found {matched_count} matches so far")
+            
+            href = link.get('href')
+            if not href or href.startswith('../') or href == '/':
+                continue
+            
+            processed_count += 1
+            
+            # Get the full URL
+            full_url = urljoin(base_url, href)
+            
+            # Extract file name from href or link text
+            file_name = href.strip('/')
+            if not file_name:
+                file_name = link.get_text().strip()
+            
+            # Skip directories
+            if href.endswith('/'):
+                continue
+            
+            # Apply file pattern filter if provided
+            if file_pattern:
+                if not re.search(file_pattern, file_name, re.IGNORECASE):
+                    continue
+            
+            matched_count += 1
+            
+            # Extract file size if available
+            size_text = ""
+            # Look for size information in the same row or nearby
+            parent = link.parent
+            if parent:
+                size_match = re.search(r'(\d+(?:\.\d+)?\s*[KMGT]?B)', parent.get_text())
+                if size_match:
+                    size_text = size_match.group(1)
+            
+            # Determine file type
+            file_type = ""
+            if '.' in file_name:
+                file_type = file_name.split('.')[-1].upper()
+            
+            rom_info = RomInfo(
+                name=file_name,
+                url=full_url,
+                size=size_text,
+                file_type=file_type
+            )
+            
+            roms.append(rom_info)
+            if len(roms) <= 10:  # Log first 10 ROMs found
+                logger.info(f"Found ROM: {rom_info.clean_name} ({rom_info.size}, {rom_info.file_type})")
+        
+        logger.info(f"Generic scraping - processed {processed_count} files, found {len(roms)} ROM files")
+        return roms
     
     def test_connection(self, url: str) -> bool:
         """Test if we can connect to the given URL.

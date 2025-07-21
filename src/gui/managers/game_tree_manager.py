@@ -184,7 +184,14 @@ class GameTreeManager:
             variants = game.get_variants_for_platform(platform)
             
             # Filter variants based on current tag filters
-            filtered_variants = [rom for rom in variants if self.gui.rom_matches_tags(rom)]
+            # Check if any filters are active first
+            active_filters = self.gui.tag_filter_manager.get_active_filters()
+            if active_filters:
+                # Apply tag filtering only when filters are active
+                filtered_variants = [rom for rom in variants if self.gui.rom_matches_tags(rom)]
+            else:
+                # No filters active - show all variants
+                filtered_variants = variants
             
             # Update the variant count in the game item
             variant_count_text = f"{len(filtered_variants)}/{len(variants)} variants" if len(filtered_variants) != len(variants) else f"{len(variants)} variants"
@@ -279,7 +286,14 @@ class GameTreeManager:
         installed_text = ""
         
         # Filter variants based on active tag filters first
-        filtered_variants = [rom for rom in variants if self.gui.rom_matches_tags(rom)]
+        # Check if any filters are active first
+        active_filters = self.gui.tag_filter_manager.get_active_filters()
+        if active_filters:
+            # Apply tag filtering only when filters are active
+            filtered_variants = [rom for rom in variants if self.gui.rom_matches_tags(rom)]
+        else:
+            # No filters active - show all variants
+            filtered_variants = variants
         
         # Get tags for display with grouping
         tags = game.get_all_tags()

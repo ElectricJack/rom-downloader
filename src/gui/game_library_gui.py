@@ -266,54 +266,102 @@ class GameLibraryGUI:
             item_details = self.tree_event_handler.get_item_details(item_id)
             item_type = item_details.get('item_type')
             
-            # Default to disabled
-            reveal_in_explorer_enabled = False
-            
-            if item_type == 'variant':
-                # For variants, enable only if the variant is installed
-                installed_status = self.game_tree.set(item_id, 'installed')
-                reveal_in_explorer_enabled = installed_status == "✓"
-                
-            elif item_type == 'game':
-                # For games (root items), enable if any variant is installed
-                reveal_in_explorer_enabled = self._has_installed_variants(item_id)
+            # Determine if reveal should be enabled and get the target variant
+            reveal_in_explorer_enabled, target_variant_info = self._determine_reveal_target(item_id, item_type, item_details)
             
             # Update menu item state
             if reveal_in_explorer_enabled:
                 self.context_menu.entryconfig(self.reveal_in_explorer_index, state="normal")
+                # Store the target variant info for use in reveal_in_file_explorer
+                self._reveal_target_info = target_variant_info
             else:
                 self.context_menu.entryconfig(self.reveal_in_explorer_index, state="disabled")
+                self._reveal_target_info = None
                 
         except Exception as e:
             logger.error(f"Error updating context menu state: {e}")
             # Default to disabled on error
             self.context_menu.entryconfig(self.reveal_in_explorer_index, state="disabled")
+            self._reveal_target_info = None
     
-    def _has_installed_variants(self, game_item_id: str) -> bool:
-        """Check if a game has any installed variants"""
+    def _determine_reveal_target(self, item_id: str, item_type: str, item_details: dict) -> tuple[bool, Optional[dict]]:
+        """Determine if reveal should be enabled and which variant to target
+        
+        Returns:
+            (enabled: bool, target_variant_info: dict or None)
+            target_variant_info contains game_key, variant_key for the target variant
+        """
+        try:
+            if item_type == 'variant':
+                # Case: Variant selected
+                # Enable only if this specific variant is installed
+                installed_status = self.game_tree.set(item_id, 'installed')
+                if installed_status == "✓":
+                    return True, {
+                        'game_key': item_details.get('game_key'),
+                        'variant_key': item_details.get('variant_key'),
+                        'item_id': item_id
+                    }
+                else:
+                    return False, None
+                    
+            elif item_type == 'game':
+                # Case: Game (parent) selected
+                # Enable if ANY variant is installed, target the first installed variant
+                installed_variants = self._get_installed_variants_info(item_id)
+                if installed_variants:
+                    # Use the first installed variant
+                    first_installed = installed_variants[0]
+                    return True, first_installed
+                else:
+                    return False, None
+            
+            # Other cases: disabled
+            return False, None
+            
+        except Exception as e:
+            logger.error(f"Error determining reveal target: {e}")
+            return False, None
+    
+    def _get_installed_variants_info(self, game_item_id: str) -> List[dict]:
+        """Get information about all installed variants for a game
+        
+        Returns:
+            List of dicts with game_key, variant_key, item_id for installed variants
+        """
+        installed_variants = []
         try:
             children = self.game_tree.get_children(game_item_id)
             for child in children:
                 installed_status = self.game_tree.set(child, 'installed')
                 if installed_status == "✓":
-                    return True
-            return False
+                    child_details = self.tree_event_handler.get_item_details(child)
+                    if child_details.get('variant_key'):
+                        installed_variants.append({
+                            'game_key': child_details.get('game_key'),
+                            'variant_key': child_details.get('variant_key'),
+                            'item_id': child
+                        })
+            return installed_variants
         except Exception as e:
-            logger.error(f"Error checking installed variants for {game_item_id}: {e}")
-            return False
+            logger.error(f"Error getting installed variants info for {game_item_id}: {e}")
+            return []
     
     def reveal_in_file_explorer(self):
-        """Reveal the selected ROM file in File Explorer"""
+        """Reveal the selected ROM file in File Explorer using intelligent variant selection"""
         try:
-            # Get the currently selected item
-            selected_item = self.tree_event_handler.get_selected_item()
-            if not selected_item:
-                messagebox.showwarning("No Selection", "Please select a ROM to reveal in explorer.")
+            # Use the target variant info determined during context menu update
+            if not hasattr(self, '_reveal_target_info') or not self._reveal_target_info:
+                messagebox.showwarning("No Target", "No installed ROM variant to reveal.")
                 return
             
-            # Get item details to determine what was selected
-            item_details = self.tree_event_handler.get_item_details(selected_item)
-            item_type = item_details.get('item_type')
+            target_info = self._reveal_target_info
+            game_key = target_info.get('game_key')
+            variant_key = target_info.get('variant_key')
+            
+            if not game_key or not variant_key:
+                messagebox.showerror("Error", "Could not determine ROM details for reveal.")
+                return
             
             display_name = self.current_platform.get()
             platform = self._get_platform_key_from_display_name(display_name) if display_name else None
@@ -322,33 +370,13 @@ class GameLibraryGUI:
                 messagebox.showerror("Error", "Could not determine current platform.")
                 return
             
-            if item_type == 'variant':
-                # Handle variant selection
-                game_key = item_details.get('game_key')
-                variant_key = item_details.get('variant_key')
-                
-                if not game_key or not variant_key:
-                    messagebox.showerror("Error", "Could not determine ROM details from selection.")
-                    return
-                
-                # Find the ROM file path for this specific variant
-                rom_file_path = self._get_installed_rom_path(game_key, variant_key, platform)
+            # Get the ROM file path for the target variant
+            rom_file_path = self._get_installed_rom_path(game_key, variant_key, platform)
+            if rom_file_path:
                 self._open_in_explorer(rom_file_path, platform)
-                
-            elif item_type == 'game':
-                # Handle game (root) selection - find first installed variant
-                game_key = item_details.get('game_key')
-                if not game_key:
-                    messagebox.showerror("Error", "Could not determine game details from selection.")
-                    return
-                
-                # Find first installed variant
-                first_installed_variant_path = self._get_first_installed_variant_path(selected_item, game_key, platform)
-                self._open_in_explorer(first_installed_variant_path, platform)
-            
+                logger.info(f"Revealing ROM variant {variant_key} of game {game_key} in explorer")
             else:
-                messagebox.showwarning("Invalid Selection", "Please select a ROM game or variant to reveal in explorer.")
-                return
+                messagebox.showerror("Error", "Could not locate the installed ROM file.")
             
         except Exception as e:
             logger.error(f"Error revealing ROM in explorer: {e}")
@@ -393,50 +421,69 @@ class GameLibraryGUI:
             logger.error(f"Error getting installed ROM path: {e}")
             return None
     
-    def _get_first_installed_variant_path(self, game_item_id: str, game_key: str, platform: str) -> Optional[Path]:
-        """Get the file path for the first installed variant of a game"""
-        try:
-            children = self.game_tree.get_children(game_item_id)
-            for child in children:
-                installed_status = self.game_tree.set(child, 'installed')
-                if installed_status == "✓":
-                    # Get variant details
-                    variant_details = self.tree_event_handler.get_item_details(child)
-                    variant_key = variant_details.get('variant_key')
-                    if variant_key:
-                        return self._get_installed_rom_path(game_key, variant_key, platform)
-            return None
-        except Exception as e:
-            logger.error(f"Error getting first installed variant for {game_key}: {e}")
-            return None
-    
     def _open_in_explorer(self, rom_file_path: Optional[Path], platform: str):
         """Open the ROM file or platform folder in explorer"""
         import subprocess
         import os
+        
+        logger.info(f"Opening ROM in explorer: {rom_file_path}")
         
         if rom_file_path and rom_file_path.exists():
             # Open explorer and select the specific file
             if os.name == 'nt':  # Windows
                 try:
                     # Use explorer.exe with /select parameter to highlight the file
-                    subprocess.run(['explorer.exe', '/select,', str(rom_file_path)], check=True)
-                except subprocess.CalledProcessError:
+                    logger.info(f"Running: explorer.exe /select, {rom_file_path}")
+                    result = subprocess.run(['explorer.exe', '/select,', str(rom_file_path)], 
+                                          capture_output=True, text=True, timeout=10)
+                    
+                    # Don't use check=True - explorer.exe can return non-zero even when successful
+                    if result.returncode == 0:
+                        logger.info("Successfully opened explorer with file selected")
+                        return
+                    else:
+                        logger.warning(f"Explorer returned code {result.returncode}, stderr: {result.stderr}")
+                        # Still try fallback only if there was a real error
+                        if "cannot find" in result.stderr.lower() or "not found" in result.stderr.lower():
+                            logger.info("File not found, trying fallback to parent folder")
+                            folder_path = rom_file_path.parent
+                            subprocess.run(['explorer.exe', str(folder_path)], timeout=10)
+                        else:
+                            # Explorer opened but returned non-zero (this is normal), don't do fallback
+                            logger.info("Explorer likely opened successfully despite non-zero return code")
+                            return
+                        
+                except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
+                    logger.error(f"Error opening explorer with /select: {e}")
                     # Fallback to opening the parent folder
-                    folder_path = rom_file_path.parent
-                    subprocess.run(['explorer.exe', str(folder_path)], check=True)
+                    try:
+                        folder_path = rom_file_path.parent
+                        logger.info(f"Fallback: opening parent folder {folder_path}")
+                        subprocess.run(['explorer.exe', str(folder_path)], timeout=10)
+                    except Exception as fallback_error:
+                        logger.error(f"Fallback also failed: {fallback_error}")
+                        messagebox.showerror("Error", f"Could not open file explorer: {e}")
             else:
                 # For non-Windows systems, just open the containing folder
-                folder_path = rom_file_path.parent
-                subprocess.run(['xdg-open', str(folder_path)], check=True)
+                try:
+                    folder_path = rom_file_path.parent
+                    subprocess.run(['xdg-open', str(folder_path)], timeout=10)
+                except Exception as e:
+                    logger.error(f"Error opening file manager: {e}")
+                    messagebox.showerror("Error", f"Could not open file manager: {e}")
         else:
+            logger.warning(f"ROM file does not exist: {rom_file_path}")
             # If we can't find the specific ROM file, just open the platform's ROM folder
             target_dir = self.config_manager.get_target_directory(platform)
             if target_dir and target_dir.exists():
-                if os.name == 'nt':  # Windows
-                    subprocess.run(['explorer.exe', str(target_dir)], check=True)
-                else:
-                    subprocess.run(['xdg-open', str(target_dir)], check=True)
+                try:
+                    if os.name == 'nt':  # Windows
+                        subprocess.run(['explorer.exe', str(target_dir)], timeout=10)
+                    else:
+                        subprocess.run(['xdg-open', str(target_dir)], timeout=10)
+                except Exception as e:
+                    logger.error(f"Error opening platform folder: {e}")
+                    messagebox.showerror("Error", f"Could not open platform folder: {e}")
             else:
                 messagebox.showerror("Error", f"ROM folder does not exist: {target_dir}")
     

@@ -147,9 +147,24 @@ class GameTreeManager:
                 pass
         self._detached_items.clear()
         
-        # Now detach items that don't match filters and rebuild variants for visible games
+        # Get the current platform
         platform = self.gui.current_platform.get()
         
+        # Check if we need to rebuild the entire tree because games are missing
+        current_visible_keys = set()
+        for item_id in self.gui.game_tree.get_children():
+            game_key = self.gui.game_tree.set(item_id, 'game_key')
+            if game_key:
+                current_visible_keys.add(game_key)
+        
+        # If some games from filtered_game_keys are not in the tree, we need to rebuild
+        missing_games = filtered_game_keys - current_visible_keys
+        if missing_games:
+            logger.info(f"Rebuilding tree: {len(missing_games)} games missing from tree")
+            self.rebuild_game_tree(self.gui.current_games, platform)
+            return
+        
+        # Now detach items that don't match filters and rebuild variants for visible games
         for item_id in list(self.gui.game_tree.get_children()):  # Create list copy since we're modifying
             game_key = self.gui.game_tree.set(item_id, 'game_key')
             

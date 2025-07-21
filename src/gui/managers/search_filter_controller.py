@@ -62,14 +62,19 @@ class SearchFilterController:
                 game for game in filtered_games
                 if self.game_matches_tags(game, all_active_filters)
             ]
+            logger.debug(f"Tag filtering: {len(games)} -> {len(filtered_games)} games (filters: {all_active_filters})")
+        else:
+            logger.debug(f"No tag filters active, keeping all {len(games)} games")
         
         # Apply search filter
         search_query = self.gui_parent.search_query.get().lower()
         if search_query:
+            pre_search_count = len(filtered_games)
             filtered_games = [
                 game for game in filtered_games
                 if search_query in game.display_name.lower()
             ]
+            logger.debug(f"Search filtering: {pre_search_count} -> {len(filtered_games)} games (query: '{search_query}')")
         
         logger.debug(f"Applied filters: {len(games)} -> {len(filtered_games)} games")
         return filtered_games

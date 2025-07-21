@@ -96,10 +96,10 @@ class InstallationStatusManager:
         
         # Use existing ROM cache for fast lookup if available
         if self.existing_roms:
-            result = self._precise_rom_match(rom.filename, self.existing_roms)
+            result, installed_filename = self._precise_rom_match_with_filename(rom.filename, self.existing_roms, target_dir)
             
-            # Cache the result for future use
-            rom.set_installed(result)
+            # Cache the result and actual filename for future use
+            rom.set_installed(result, installed_filename)
             return result
         
         # Fallback to direct checking if cache is empty
@@ -116,9 +116,69 @@ class InstallationStatusManager:
         rom.set_installed(result)
         return result
     
+    def _precise_rom_match_with_filename(self, rom_filename: str, existing_roms: set, target_dir: Path) -> tuple[bool, Optional[str]]:
+        """
+        Perform precise ROM matching and return both result and actual installed filename.
+        
+        Args:
+            rom_filename: The ROM filename to check (e.g., "007 - Everything or Nothing (Japan).zip")
+            existing_roms: Set of existing ROM stems (case-insensitive, no extensions)
+            target_dir: Target directory to search for actual files
+        
+        Returns:
+            Tuple of (is_found: bool, installed_filename: Optional[str])
+        """
+        # Get the stem (filename without extension)
+        stem = rom_filename
+        if '.' in stem:
+            stem = '.'.join(stem.split('.')[:-1])
+        
+        # Try different matching strategies and find actual file
+        candidates = [
+            stem.lower().strip(),  # Strategy 1: Exact match
+            self.rom_filter._normalize_name(stem)  # Strategy 2: Normalized match
+        ]
+        
+        for candidate in candidates:
+            if candidate in existing_roms:
+                # Found a match, now find the actual file in the directory
+                actual_filename = self._find_actual_filename(candidate, target_dir)
+                return True, actual_filename
+        
+        # Strategy 3: Check for same ROM different format
+        normalized_name = self.rom_filter._normalize_name(stem)
+        for existing_rom in existing_roms:
+            if self._are_same_rom_different_format(normalized_name, existing_rom):
+                actual_filename = self._find_actual_filename(existing_rom, target_dir)
+                return True, actual_filename
+        
+        return False, None
+    
+    def _find_actual_filename(self, normalized_name: str, target_dir: Path) -> Optional[str]:
+        """Find the actual filename in the directory that matches the normalized name"""
+        try:
+            rom_extensions = {'.rvz', '.zip', '.7z', '.iso', '.gcm', '.bin', '.cue', '.chd', 
+                             '.n64', '.z64', '.v64', '.nes', '.sfc', '.smc', '.gba', '.gbc', '.gb', 
+                             '.nds', '.vb', '.pce', '.a26', '.a52', '.a78', '.cdi', '.gdi', '.wux', '.wud'}
+            
+            for file_path in target_dir.iterdir():
+                if file_path.is_file() and any(file_path.name.lower().endswith(ext) for ext in rom_extensions):
+                    # Get file stem and normalize it
+                    file_stem = file_path.stem
+                    file_normalized = self.rom_filter._normalize_name(file_stem)
+                    
+                    if file_normalized == normalized_name:
+                        return file_path.name
+                        
+        except Exception as e:
+            logger.debug(f"Error finding actual filename for {normalized_name}: {e}")
+        
+        return None
+    
     def _precise_rom_match(self, rom_filename: str, existing_roms: set) -> bool:
         """
         Perform precise ROM matching using multiple strategies to avoid false positives.
+        This is a wrapper around _precise_rom_match_with_filename for backward compatibility.
         
         Args:
             rom_filename: The ROM filename to check (e.g., "007 - Everything or Nothing (Japan).zip")
@@ -127,28 +187,10 @@ class InstallationStatusManager:
         Returns:
             True if the ROM is found, False otherwise
         """
-        # Get the stem (filename without extension)
-        stem = rom_filename
-        if '.' in stem:
-            stem = '.'.join(stem.split('.')[:-1])
-        
-        # Strategy 1: Exact match (case-insensitive)
-        precise_name = stem.lower().strip()
-        if precise_name in existing_roms:
-            return True
-        
-        # Strategy 2: Use the same normalization as the existing_roms set
-        normalized_name = self.rom_filter._normalize_name(stem)
-        if normalized_name in existing_roms:
-            return True
-        
-        # Strategy 3: Check if any existing ROM matches this one with different extension
-        # This handles cases like .zip vs .rvz for the same game
-        for existing_rom in existing_roms:
-            if self._are_same_rom_different_format(normalized_name, existing_rom):
-                return True
-        
-        return False
+        # For backward compatibility, delegate to the new method but ignore the filename
+        # This is used in tests where target_dir is not available
+        result, _ = self._precise_rom_match_with_filename(rom_filename, existing_roms, Path("."))
+        return result
     
     def _are_same_rom_different_format(self, rom1: str, rom2: str) -> bool:
         """
@@ -276,11 +318,12 @@ class InstallationStatusManager:
             for rom in game.get_variants_for_platform(platform):
                 total_roms += 1
                 
-                # Use the new precise matching logic
-                is_installed = self._precise_rom_match(rom.filename, self.existing_roms)
+                # Use the new precise matching logic with filename detection
+                target_dir = self.config_manager.get_target_directory(platform)
+                is_installed, installed_filename = self._precise_rom_match_with_filename(rom.filename, self.existing_roms, target_dir)
                 
-                # Cache the result
-                rom.set_installed(is_installed)
+                # Cache the result and actual filename
+                rom.set_installed(is_installed, installed_filename)
                 if is_installed:
                     cached_roms += 1
         

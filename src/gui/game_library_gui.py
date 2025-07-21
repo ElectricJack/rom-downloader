@@ -253,7 +253,192 @@ class GameLibraryGUI:
         self.context_menu.add_separator()
         self.context_menu.add_command(label="Select All", command=self.queue_manager.select_all_games)
         self.context_menu.add_command(label="Select None", command=self.queue_manager.select_none_games)
+        self.context_menu.add_separator()
+        self.context_menu.add_command(label="Reveal in File Explorer", command=self.reveal_in_file_explorer)
+        
+        # Store menu indices for dynamic enabling/disabling
+        self.reveal_in_explorer_index = self.context_menu.index("end")
     
+    def update_context_menu_state(self, item_id: str):
+        """Update context menu items based on selected item's installation status"""
+        try:
+            # Get item details
+            item_details = self.tree_event_handler.get_item_details(item_id)
+            item_type = item_details.get('item_type')
+            
+            # Default to disabled
+            reveal_in_explorer_enabled = False
+            
+            if item_type == 'variant':
+                # For variants, enable only if the variant is installed
+                installed_status = self.game_tree.set(item_id, 'installed')
+                reveal_in_explorer_enabled = installed_status == "✓"
+                
+            elif item_type == 'game':
+                # For games (root items), enable if any variant is installed
+                reveal_in_explorer_enabled = self._has_installed_variants(item_id)
+            
+            # Update menu item state
+            if reveal_in_explorer_enabled:
+                self.context_menu.entryconfig(self.reveal_in_explorer_index, state="normal")
+            else:
+                self.context_menu.entryconfig(self.reveal_in_explorer_index, state="disabled")
+                
+        except Exception as e:
+            logger.error(f"Error updating context menu state: {e}")
+            # Default to disabled on error
+            self.context_menu.entryconfig(self.reveal_in_explorer_index, state="disabled")
+    
+    def _has_installed_variants(self, game_item_id: str) -> bool:
+        """Check if a game has any installed variants"""
+        try:
+            children = self.game_tree.get_children(game_item_id)
+            for child in children:
+                installed_status = self.game_tree.set(child, 'installed')
+                if installed_status == "✓":
+                    return True
+            return False
+        except Exception as e:
+            logger.error(f"Error checking installed variants for {game_item_id}: {e}")
+            return False
+    
+    def reveal_in_file_explorer(self):
+        """Reveal the selected ROM file in File Explorer"""
+        try:
+            # Get the currently selected item
+            selected_item = self.tree_event_handler.get_selected_item()
+            if not selected_item:
+                messagebox.showwarning("No Selection", "Please select a ROM to reveal in explorer.")
+                return
+            
+            # Get item details to determine what was selected
+            item_details = self.tree_event_handler.get_item_details(selected_item)
+            item_type = item_details.get('item_type')
+            
+            display_name = self.current_platform.get()
+            platform = self._get_platform_key_from_display_name(display_name) if display_name else None
+            
+            if not platform:
+                messagebox.showerror("Error", "Could not determine current platform.")
+                return
+            
+            if item_type == 'variant':
+                # Handle variant selection
+                game_key = item_details.get('game_key')
+                variant_key = item_details.get('variant_key')
+                
+                if not game_key or not variant_key:
+                    messagebox.showerror("Error", "Could not determine ROM details from selection.")
+                    return
+                
+                # Find the ROM file path for this specific variant
+                rom_file_path = self._get_installed_rom_path(game_key, variant_key, platform)
+                self._open_in_explorer(rom_file_path, platform)
+                
+            elif item_type == 'game':
+                # Handle game (root) selection - find first installed variant
+                game_key = item_details.get('game_key')
+                if not game_key:
+                    messagebox.showerror("Error", "Could not determine game details from selection.")
+                    return
+                
+                # Find first installed variant
+                first_installed_variant_path = self._get_first_installed_variant_path(selected_item, game_key, platform)
+                self._open_in_explorer(first_installed_variant_path, platform)
+            
+            else:
+                messagebox.showwarning("Invalid Selection", "Please select a ROM game or variant to reveal in explorer.")
+                return
+            
+        except Exception as e:
+            logger.error(f"Error revealing ROM in explorer: {e}")
+            messagebox.showerror("Error", f"An error occurred while trying to reveal the ROM in explorer: {e}")
+    
+    def _get_installed_rom_path(self, game_key: str, variant_key: str, platform: str) -> Optional[Path]:
+        """Get the installed ROM file path using cached filename information"""
+        try:
+            # Find the game in current games
+            game = None
+            for g in self.current_games:
+                if g.key == game_key:
+                    game = g
+                    break
+                    
+            if not game:
+                logger.warning(f"Game not found: {game_key}")
+                return None
+            
+            # Find the specific ROM variant using variant_key
+            rom = None
+            for rom_variant in game.variants.values():
+                if rom_variant.create_variant_key() == variant_key:
+                    rom = rom_variant
+                    break
+            
+            if not rom:
+                logger.warning(f"ROM variant not found: {variant_key}")
+                return None
+            
+            # Get the cached installed filename
+            installed_filename = rom.get_installed_filename()
+            if installed_filename:
+                target_dir = self.config_manager.get_target_directory(platform)
+                if target_dir:
+                    return target_dir / installed_filename
+            
+            logger.warning(f"No cached installed filename for ROM {rom.filename}")
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error getting installed ROM path: {e}")
+            return None
+    
+    def _get_first_installed_variant_path(self, game_item_id: str, game_key: str, platform: str) -> Optional[Path]:
+        """Get the file path for the first installed variant of a game"""
+        try:
+            children = self.game_tree.get_children(game_item_id)
+            for child in children:
+                installed_status = self.game_tree.set(child, 'installed')
+                if installed_status == "✓":
+                    # Get variant details
+                    variant_details = self.tree_event_handler.get_item_details(child)
+                    variant_key = variant_details.get('variant_key')
+                    if variant_key:
+                        return self._get_installed_rom_path(game_key, variant_key, platform)
+            return None
+        except Exception as e:
+            logger.error(f"Error getting first installed variant for {game_key}: {e}")
+            return None
+    
+    def _open_in_explorer(self, rom_file_path: Optional[Path], platform: str):
+        """Open the ROM file or platform folder in explorer"""
+        import subprocess
+        import os
+        
+        if rom_file_path and rom_file_path.exists():
+            # Open explorer and select the specific file
+            if os.name == 'nt':  # Windows
+                try:
+                    # Use explorer.exe with /select parameter to highlight the file
+                    subprocess.run(['explorer.exe', '/select,', str(rom_file_path)], check=True)
+                except subprocess.CalledProcessError:
+                    # Fallback to opening the parent folder
+                    folder_path = rom_file_path.parent
+                    subprocess.run(['explorer.exe', str(folder_path)], check=True)
+            else:
+                # For non-Windows systems, just open the containing folder
+                folder_path = rom_file_path.parent
+                subprocess.run(['xdg-open', str(folder_path)], check=True)
+        else:
+            # If we can't find the specific ROM file, just open the platform's ROM folder
+            target_dir = self.config_manager.get_target_directory(platform)
+            if target_dir and target_dir.exists():
+                if os.name == 'nt':  # Windows
+                    subprocess.run(['explorer.exe', str(target_dir)], check=True)
+                else:
+                    subprocess.run(['xdg-open', str(target_dir)], check=True)
+            else:
+                messagebox.showerror("Error", f"ROM folder does not exist: {target_dir}")
     
     
     

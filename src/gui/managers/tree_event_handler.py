@@ -95,6 +95,8 @@ class TreeEventHandler:
             
         item = self.gui.game_tree.identify_row(event.y)
         if item:
+            # Update context menu state before showing
+            self.gui.update_context_menu_state(item)
             self.gui.context_menu.post(event.x_root, event.y_root)
     
     def on_tree_select(self, event):

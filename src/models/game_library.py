@@ -20,6 +20,7 @@ class ROM:
     game_key: str = ""
     clean_name: str = ""  # Cleaned filename for display
     _is_installed: Optional[bool] = field(default=None, init=False)  # Cache installation status
+    _installed_filename: Optional[str] = field(default=None, init=False)  # Actual installed filename on disk
     
     def __post_init__(self):
         """Ensure tags is always a set"""
@@ -90,13 +91,22 @@ class ROM:
         """Get cached installation status"""
         return self._is_installed
     
-    def set_installed(self, installed: bool):
-        """Set cached installation status"""
+    def set_installed(self, installed: bool, installed_filename: str = None):
+        """Set cached installation status and optionally the actual installed filename"""
         self._is_installed = installed
+        if installed and installed_filename:
+            self._installed_filename = installed_filename
+        elif not installed:
+            self._installed_filename = None
+    
+    def get_installed_filename(self) -> Optional[str]:
+        """Get the actual installed filename if available"""
+        return self._installed_filename
     
     def clear_installation_cache(self):
-        """Clear cached installation status"""
+        """Clear cached installation status and installed filename"""
         self._is_installed = None
+        self._installed_filename = None
 
 
 @dataclass

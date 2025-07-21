@@ -58,6 +58,11 @@ class EnhancedConfigManager:
             logger.error(f"Failed to save configuration: {e}")
             return False
     
+    def reload_config(self) -> bool:
+        """Reload configuration from file"""
+        logger.info("Reloading configuration")
+        return self.load_config()
+    
     def _validate_config(self) -> bool:
         """Validate configuration structure"""
         if not isinstance(self.config_data, dict):

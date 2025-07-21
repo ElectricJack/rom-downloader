@@ -25,6 +25,7 @@ from src.gui.managers.download_controller import DownloadController
 from src.gui.managers.search_filter_controller import SearchFilterController
 from src.gui.managers.tree_event_handler import TreeEventHandler
 from src.gui.managers.file_operations_manager import FileOperationsManager
+from src.gui.settings_window import SettingsWindow
 
 logger = logging.getLogger(__name__)
 
@@ -500,7 +501,8 @@ class GameLibraryGUI:
         # Tools menu
         tools_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Tools", menu=tools_menu)
-        # Removed Diagnose ROM Detection tool
+        tools_menu.add_command(label="Settings...", command=self.show_settings)
+        tools_menu.add_separator()
         tools_menu.add_command(label="Clear Cache", command=self.file_operations_manager.clear_cache)
         tools_menu.add_command(label="Cleanup Temp Files", command=self.file_operations_manager.cleanup_temp_files)
         
@@ -807,6 +809,15 @@ Usage:
 - Use filters to find specific games quickly
 """
         messagebox.showinfo("About", about_text)
+    
+    def show_settings(self):
+        """Show the settings window"""
+        try:
+            settings_window = SettingsWindow(self.root, self.config_manager)
+            settings_window.show()
+        except Exception as e:
+            logger.error(f"Error opening settings window: {e}")
+            messagebox.showerror("Error", f"Failed to open settings: {e}")
     
     def _set_download_ui_state(self, downloading: bool):
         """Enable/disable UI elements based on download state"""

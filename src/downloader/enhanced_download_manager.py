@@ -15,10 +15,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from models.game_library import ROM
-from tools.pipeline_manager import ToolPipelineManager
-from tools.base import ProcessingResult
-from config.enhanced_config_manager import EnhancedConfigManager
+from src.models.game_library import ROM
+from src.tools.pipeline_manager import ToolPipelineManager
+from src.tools.base import ProcessingResult
+from src.config.enhanced_config_manager import EnhancedConfigManager
 
 logger = logging.getLogger(__name__)
 

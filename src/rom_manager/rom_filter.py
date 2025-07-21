@@ -10,9 +10,7 @@ from collections import defaultdict
 from pathlib import Path
 
 # Import RomInfo from scraper module
-import sys
-sys.path.append(str(Path(__file__).parent.parent))
-from scraper.web_scraper import RomInfo
+from src.scraper.web_scraper import RomInfo
 
 logger = logging.getLogger(__name__)
 

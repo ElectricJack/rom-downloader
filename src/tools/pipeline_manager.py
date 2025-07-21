@@ -6,10 +6,10 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Callable
 
-from tools.base import ToolHandler, ToolStep, ProcessingResult
-from tools.zip_extractor import ZipExtractorTool
-from tools.chd_converter import CHDConverterTool
-from tools.xbox_extractor import XboxExtractorTool
+from src.tools.base import ToolHandler, ToolStep, ProcessingResult
+from src.tools.zip_extractor import ZipExtractorTool
+from src.tools.chd_converter import CHDConverterTool
+from src.tools.xbox_extractor import XboxExtractorTool
 
 logger = logging.getLogger(__name__)
 

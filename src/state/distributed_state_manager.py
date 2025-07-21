@@ -14,11 +14,8 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional, Any, Set
 from dataclasses import asdict
-import sys
-sys.path.append(str(Path(__file__).parent.parent))
-
 from src.models.game_library import GameLibrary, Game, ROM, UserSelection
-from utils.dirs import app_dirs
+from src.utils.dirs import app_dirs
 
 logger = logging.getLogger(__name__)
 

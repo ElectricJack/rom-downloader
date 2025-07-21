@@ -6,8 +6,8 @@ import tkinter as tk
 from typing import List, Set, Optional, Callable
 import logging
 
-from models.game_library import Game, ROM
-from filters.advanced_rom_filter import AdvancedRomFilter
+from src.models.game_library import Game, ROM
+from src.filters.advanced_rom_filter import AdvancedRomFilter
 
 logger = logging.getLogger(__name__)
 

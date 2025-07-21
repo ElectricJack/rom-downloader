@@ -10,7 +10,7 @@ Handles all queue-related functionality including:
 
 import logging
 from typing import Set, List, Optional, Callable
-from models.game_library import Game
+from src.models.game_library import Game
 
 logger = logging.getLogger(__name__)
 

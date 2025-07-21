@@ -8,11 +8,8 @@ import sys
 import logging
 from pathlib import Path
 
-# Add src directory to path
-sys.path.insert(0, str(Path(__file__).parent / "src"))
-
-from gui.game_library_gui import GameLibraryGUI
-from config.enhanced_config_manager import EnhancedConfigManager
+from src.gui.game_library_gui import GameLibraryGUI
+from src.config.enhanced_config_manager import EnhancedConfigManager
 
 
 def setup_logging():

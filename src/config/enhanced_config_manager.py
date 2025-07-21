@@ -6,11 +6,8 @@ import json
 import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Any
-import sys
-sys.path.append(str(Path(__file__).parent.parent))
-
-from tools.base import ToolStep
-from utils.dirs import app_dirs
+from src.tools.base import ToolStep
+from src.utils.dirs import app_dirs
 
 logger = logging.getLogger(__name__)
 

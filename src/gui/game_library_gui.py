@@ -9,22 +9,22 @@ import sys
 from typing import Dict, Set, List, Optional, Callable
 from pathlib import Path
 
-from models.game_library import Game, ROM, GameLibrary
-from state.distributed_state_manager import DistributedStateManager
-from config.enhanced_config_manager import EnhancedConfigManager
-from downloader.enhanced_download_manager import EnhancedDownloadManager, DownloadProgress, DownloadResult
-from processors.game_library_processor import GameLibraryProcessor
-from scraper.web_scraper import WebScraper, RomInfo
-from rom_manager.rom_filter import RomFilter
-from filters.advanced_rom_filter import AdvancedRomFilter, FilterCriteria
-from gui.managers.tag_filter_manager import TagFilterManager
-from gui.managers.queue_manager import QueueManager
-from gui.managers.game_tree_manager import GameTreeManager
-from gui.managers.installation_status_manager import InstallationStatusManager
-from gui.managers.download_controller import DownloadController
-from gui.managers.search_filter_controller import SearchFilterController
-from gui.managers.tree_event_handler import TreeEventHandler
-from gui.managers.file_operations_manager import FileOperationsManager
+from src.models.game_library import Game, ROM, GameLibrary
+from src.state.distributed_state_manager import DistributedStateManager
+from src.config.enhanced_config_manager import EnhancedConfigManager
+from src.downloader.enhanced_download_manager import EnhancedDownloadManager, DownloadProgress, DownloadResult
+from src.processors.game_library_processor import GameLibraryProcessor
+from src.scraper.web_scraper import WebScraper, RomInfo
+from src.rom_manager.rom_filter import RomFilter
+from src.filters.advanced_rom_filter import AdvancedRomFilter, FilterCriteria
+from src.gui.managers.tag_filter_manager import TagFilterManager
+from src.gui.managers.queue_manager import QueueManager
+from src.gui.managers.game_tree_manager import GameTreeManager
+from src.gui.managers.installation_status_manager import InstallationStatusManager
+from src.gui.managers.download_controller import DownloadController
+from src.gui.managers.search_filter_controller import SearchFilterController
+from src.gui.managers.tree_event_handler import TreeEventHandler
+from src.gui.managers.file_operations_manager import FileOperationsManager
 
 logger = logging.getLogger(__name__)
 

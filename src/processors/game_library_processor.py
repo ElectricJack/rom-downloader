@@ -7,8 +7,8 @@ import logging
 from typing import List, Set, Tuple, Dict
 from pathlib import Path
 
-from scraper.web_scraper import RomInfo
-from models.game_library import ROM, Game, GameLibrary
+from src.scraper.web_scraper import RomInfo
+from src.models.game_library import ROM, Game, GameLibrary
 
 logger = logging.getLogger(__name__)
 

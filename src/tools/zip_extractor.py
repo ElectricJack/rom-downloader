@@ -8,7 +8,7 @@ import logging
 from pathlib import Path
 from typing import List, Dict, Any
 
-from tools.base import ToolHandler, ProcessingResult
+from src.tools.base import ToolHandler, ProcessingResult
 
 logger = logging.getLogger(__name__)
 

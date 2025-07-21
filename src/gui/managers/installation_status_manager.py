@@ -14,9 +14,9 @@ import time
 from pathlib import Path
 from typing import Dict, Set, List, Optional, Callable
 
-from models.game_library import Game, ROM
-from scraper.web_scraper import RomInfo
-from rom_manager.rom_filter import RomFilter
+from src.models.game_library import Game, ROM
+from src.scraper.web_scraper import RomInfo
+from src.rom_manager.rom_filter import RomFilter
 
 logger = logging.getLogger(__name__)
 

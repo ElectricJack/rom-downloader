@@ -176,7 +176,7 @@ class GameLibraryGUI:
         self.scan_button = ttk.Button(top_frame, text="Scan ROMs", command=self.scan_roms)
         self.scan_button.pack(side=tk.LEFT, padx=(0, 5))
         
-        self.check_installed_button = ttk.Button(top_frame, text="Check Installed", command=self.installation_status_manager.check_installed_roms)
+        self.check_installed_button = ttk.Button(top_frame, text="Check Installed", command=self.check_installed_for_current_platform)
         self.check_installed_button.pack(side=tk.LEFT, padx=(0, 5))
         
         self.install_queue_button = ttk.Button(top_frame, text="Install Games in Queue", command=self.download_controller.download_selected)
@@ -811,6 +811,21 @@ class GameLibraryGUI:
             categorized_tags = self.library_processor.categorize_tags(platform_tags) if platform_tags else {}
             self.tag_filter_manager.update_tag_buttons(platform, categorized_tags)
             self.refresh_game_list()
+    
+    def check_installed_for_current_platform(self):
+        """Check installed ROMs for current platform using the same method as platform changes"""
+        display_name = self.current_platform.get()
+        if not display_name:
+            messagebox.showwarning("Warning", "Please select a platform first")
+            return
+        
+        platform = self._get_platform_key_from_display_name(display_name)
+        if not platform:
+            messagebox.showerror("Error", f"Invalid platform: {display_name}")
+            return
+        
+        # Use the exact same method as platform changes
+        self.installation_status_manager.start_background_checking(platform)
     
     
     

@@ -280,10 +280,17 @@ class DistributedStateManager:
             'display_name': game.display_name,
             'platforms': list(game.platforms),
             'variants': {
-                variant_key: asdict(rom) 
+                variant_key: self._serialize_rom(rom) 
                 for variant_key, rom in game.variants.items()
             }
         }
+    
+    def _serialize_rom(self, rom: ROM) -> Dict[str, Any]:
+        """Serialize a ROM object including private fields"""
+        rom_dict = asdict(rom)
+        # Include the installed filename in serialization
+        rom_dict['_installed_filename'] = rom._installed_filename
+        return rom_dict
     
     def _deserialize_platform_library(self, data: Dict[str, Any]) -> GameLibrary:
         """Deserialize platform-specific game library"""
@@ -318,13 +325,15 @@ class DistributedStateManager:
                 rom_data['tags'] = set(rom_data['tags'])
             
             # Remove init=False fields that shouldn't be passed to constructor
-            installation_status = rom_data.pop('_is_installed', None)
+            installed_filename = rom_data.pop('_installed_filename', None)
+            # Also remove legacy _is_installed field if it exists
+            rom_data.pop('_is_installed', None)
             
             rom = ROM(**rom_data)
             
-            # Restore installation status after creation
-            if installation_status is not None:
-                rom.set_installed(installation_status)
+            # Restore installed filename after creation
+            if installed_filename is not None:
+                rom._installed_filename = installed_filename
                 
             game.variants[variant_key] = rom
         

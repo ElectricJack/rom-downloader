@@ -19,7 +19,6 @@ class ROM:
     platform: str = ""
     game_key: str = ""
     clean_name: str = ""  # Cleaned filename for display
-    _is_installed: Optional[bool] = field(default=None, init=False)  # Cache installation status
     _installed_filename: Optional[str] = field(default=None, init=False)  # Actual installed filename on disk
     
     def __post_init__(self):
@@ -88,24 +87,29 @@ class ROM:
         return f"{self.file_type}_{tag_string}"
     
     def is_installed(self) -> Optional[bool]:
-        """Get cached installation status"""
-        return self._is_installed
+        """Get installation status derived from installed filename"""
+        if self._installed_filename is None:
+            return None  # Status unknown/not cached
+        return self._installed_filename != ""  # Empty string means checked but not installed
     
     def set_installed(self, installed: bool, installed_filename: str = None):
-        """Set cached installation status and optionally the actual installed filename"""
-        self._is_installed = installed
+        """Set installation status by setting the actual installed filename"""
         if installed and installed_filename:
             self._installed_filename = installed_filename
-        elif not installed:
-            self._installed_filename = None
+        elif installed and not installed_filename:
+            # Installed but no filename provided - this shouldn't happen in new code
+            # but maintain backward compatibility
+            self._installed_filename = "unknown"
+        else:
+            # Not installed
+            self._installed_filename = ""
     
     def get_installed_filename(self) -> Optional[str]:
         """Get the actual installed filename if available"""
         return self._installed_filename
     
     def clear_installation_cache(self):
-        """Clear cached installation status and installed filename"""
-        self._is_installed = None
+        """Clear cached installation status by clearing installed filename"""
         self._installed_filename = None
 
 

@@ -115,8 +115,8 @@ class InstallationStatusManager:
         
         result = self.rom_filter.is_rom_installed(rom_info, target_dir)
         
-        # Cache the result for future use
-        rom.set_installed(result)
+        # Cache the result for future use (no filename for fallback method)
+        rom.set_installed(result, "unknown" if result else None)
         return result
     
     def _precise_rom_match_with_filename(self, rom_filename: str, existing_roms: set, target_dir: Path) -> tuple[bool, Optional[str]]:

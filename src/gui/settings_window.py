@@ -44,8 +44,9 @@ class SettingsWindow:
         self.max_concurrent_var = tk.IntVar()
         
         # Network Settings tab
-        self.network_drive_var = tk.StringVar()
-        self.target_directory_var = tk.StringVar()
+        self.network_drives_list = []
+        self.current_drive_var = tk.StringVar()
+        self.network_drives_tree = None
         
         # Platform Settings tab
         self.platforms_tree = None
@@ -116,8 +117,10 @@ class SettingsWindow:
             self.delay_min_var.set(settings.get("download_delay_min", 2))
             self.delay_max_var.set(settings.get("download_delay_max", 5))
             self.max_concurrent_var.set(settings.get("max_concurrent_downloads", 1))
-            self.network_drive_var.set(settings.get("network_drive_path", "//BATOCERA/share/roms"))
-            self.target_directory_var.set(settings.get("target_directory", "//BATOCERA/share/roms"))
+            
+            # Load network drives
+            self.network_drives_list = self.config_manager.get_network_drive_paths()
+            self.current_drive_var.set(self.config_manager.get_current_network_drive_path())
             
         except Exception as e:
             logger.error(f"Error loading configuration: {e}")
@@ -193,36 +196,60 @@ Concurrent Downloads:
         tab_frame = ttk.Frame(self.notebook)
         self.notebook.add(tab_frame, text="Network")
         
-        # Network paths section
-        paths_frame = ttk.LabelFrame(tab_frame, text="Network Paths")
-        paths_frame.pack(fill=tk.X, padx=10, pady=10)
+        # Current drive selection
+        current_frame = ttk.LabelFrame(tab_frame, text="Current Network Drive")
+        current_frame.pack(fill=tk.X, padx=10, pady=10)
         
-        # Network drive path
-        ttk.Label(paths_frame, text="Network drive path:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
-        network_entry = ttk.Entry(paths_frame, textvariable=self.network_drive_var, width=50)
-        network_entry.grid(row=0, column=1, padx=5, pady=5)
-        ttk.Button(paths_frame, text="Browse", command=self.browse_network_drive).grid(row=0, column=2, padx=5, pady=5)
+        ttk.Label(current_frame, text="Active network drive:").pack(anchor=tk.W, padx=5, pady=5)
+        current_combo = ttk.Combobox(current_frame, textvariable=self.current_drive_var, state="readonly", width=60)
+        current_combo.pack(fill=tk.X, padx=5, pady=5)
+        self.current_drive_combo = current_combo
         
-        # Target directory
-        ttk.Label(paths_frame, text="Target directory:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
-        target_entry = ttk.Entry(paths_frame, textvariable=self.target_directory_var, width=50)
-        target_entry.grid(row=1, column=1, padx=5, pady=5)
-        ttk.Button(paths_frame, text="Browse", command=self.browse_target_directory).grid(row=1, column=2, padx=5, pady=5)
+        # Network drives management
+        drives_frame = ttk.LabelFrame(tab_frame, text="Configure Network Drives")
+        drives_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Tree for drives list
+        drives_tree_frame = ttk.Frame(drives_frame)
+        drives_tree_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        ttk.Label(drives_tree_frame, text="Configured network drives:").pack(anchor=tk.W)
+        
+        self.network_drives_tree = ttk.Treeview(drives_tree_frame, columns=('path',), show='headings', height=6)
+        self.network_drives_tree.heading('path', text='Network Drive Path')
+        self.network_drives_tree.column('path', width=500)
+        
+        drives_scroll = ttk.Scrollbar(drives_tree_frame, orient=tk.VERTICAL, command=self.network_drives_tree.yview)
+        self.network_drives_tree.configure(yscrollcommand=drives_scroll.set)
+        
+        self.network_drives_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        drives_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Buttons for drives management
+        drives_buttons_frame = ttk.Frame(drives_frame)
+        drives_buttons_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        ttk.Button(drives_buttons_frame, text="Add Drive", command=self.add_network_drive).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(drives_buttons_frame, text="Remove Drive", command=self.remove_network_drive).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(drives_buttons_frame, text="Edit Drive", command=self.edit_network_drive).pack(side=tk.LEFT)
+        
+        # Load drives into tree
+        self.load_network_drives_tree()
         
         # Help text
         help_frame = ttk.LabelFrame(tab_frame, text="Help")
         help_frame.pack(fill=tk.X, padx=10, pady=10)
         
-        help_text = """Network Paths:
-• Network drive path: Primary network location for ROM storage (e.g., //BATOCERA/share/roms)
-• Target directory: Where ROMs will be copied after download
-• Both paths can be the same for direct network downloads
-• Use UNC paths (//server/share) for network drives
-• Use local paths (C:\\ROMs) for local storage
+        help_text = """Network Drives:
+• Configure multiple network drives and switch between them
+• Active drive is used for all ROM downloads and installation status checking
+• Each drive can point to different servers or local directories
+• At least one drive must be configured
 
 Examples:
 • Network: //BATOCERA/share/roms
-• Local: C:\\ROMs\\Collection"""
+• Local: C:\\ROMs\\Collection
+• Alternative: //BACKUP-SERVER/roms"""
         
         ttk.Label(help_frame, text=help_text, justify=tk.LEFT).pack(padx=5, pady=5)
     
@@ -477,17 +504,152 @@ Examples:
         
         messagebox.showinfo("Success", "Platform updated successfully")
     
-    def browse_network_drive(self):
-        """Browse for network drive path"""
-        path = filedialog.askdirectory(title="Select Network Drive Path", initialdir=self.network_drive_var.get())
-        if path:
-            self.network_drive_var.set(path)
+    def load_network_drives_tree(self):
+        """Load network drives into the tree view"""
+        # Clear existing items
+        for item in self.network_drives_tree.get_children():
+            self.network_drives_tree.delete(item)
+        
+        # Load drives
+        for drive_path in self.network_drives_list:
+            self.network_drives_tree.insert('', 'end', values=(drive_path,))
+        
+        # Update combo box
+        self.current_drive_combo['values'] = self.network_drives_list
     
-    def browse_target_directory(self):
-        """Browse for target directory"""
-        path = filedialog.askdirectory(title="Select Target Directory", initialdir=self.target_directory_var.get())
-        if path:
-            self.target_directory_var.set(path)
+    def add_network_drive(self):
+        """Add a new network drive"""
+        dialog = tk.Toplevel(self.window)
+        dialog.title("Add Network Drive")
+        dialog.geometry("500x150")
+        dialog.grab_set()
+        
+        ttk.Label(dialog, text="Network Drive Path:").pack(pady=5)
+        path_var = tk.StringVar()
+        path_entry = ttk.Entry(dialog, textvariable=path_var, width=60)
+        path_entry.pack(pady=5, padx=10)
+        path_entry.focus()
+        
+        def browse():
+            path = filedialog.askdirectory(title="Select Network Drive Path")
+            if path:
+                path_var.set(path)
+        
+        def confirm():
+            path = path_var.get().strip()
+            if not path:
+                messagebox.showerror("Error", "Path cannot be empty")
+                return
+            
+            if path in self.network_drives_list:
+                messagebox.showerror("Error", "Path already exists")
+                return
+            
+            self.network_drives_list.append(path)
+            self.load_network_drives_tree()
+            
+            # If this is the first drive, make it current
+            if len(self.network_drives_list) == 1:
+                self.current_drive_var.set(path)
+            
+            dialog.destroy()
+        
+        def cancel():
+            dialog.destroy()
+        
+        button_frame = ttk.Frame(dialog)
+        button_frame.pack(pady=10)
+        ttk.Button(button_frame, text="Browse", command=browse).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="OK", command=confirm).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Cancel", command=cancel).pack(side=tk.LEFT)
+        
+        # Bind Enter key
+        path_entry.bind('<Return>', lambda e: confirm())
+    
+    def remove_network_drive(self):
+        """Remove the selected network drive"""
+        selection = self.network_drives_tree.selection()
+        if not selection:
+            messagebox.showwarning("Warning", "Please select a network drive to remove")
+            return
+        
+        # Check if we can remove (must have at least one)
+        if len(self.network_drives_list) <= 1:
+            messagebox.showerror("Error", "Cannot remove the last network drive. At least one drive must be configured.")
+            return
+        
+        item = selection[0]
+        path = self.network_drives_tree.item(item, 'values')[0]
+        
+        if messagebox.askyesno("Confirm Remove", f"Are you sure you want to remove the network drive?\n\n{path}"):
+            self.network_drives_list.remove(path)
+            
+            # Update current drive if needed
+            current = self.current_drive_var.get()
+            if current == path:
+                self.current_drive_var.set(self.network_drives_list[0])
+            
+            self.load_network_drives_tree()
+    
+    def edit_network_drive(self):
+        """Edit the selected network drive"""
+        selection = self.network_drives_tree.selection()
+        if not selection:
+            messagebox.showwarning("Warning", "Please select a network drive to edit")
+            return
+        
+        item = selection[0]
+        old_path = self.network_drives_tree.item(item, 'values')[0]
+        
+        dialog = tk.Toplevel(self.window)
+        dialog.title("Edit Network Drive")
+        dialog.geometry("500x150")
+        dialog.grab_set()
+        
+        ttk.Label(dialog, text="Network Drive Path:").pack(pady=5)
+        path_var = tk.StringVar(value=old_path)
+        path_entry = ttk.Entry(dialog, textvariable=path_var, width=60)
+        path_entry.pack(pady=5, padx=10)
+        path_entry.focus()
+        path_entry.select_range(0, tk.END)
+        
+        def browse():
+            path = filedialog.askdirectory(title="Select Network Drive Path", initialdir=path_var.get())
+            if path:
+                path_var.set(path)
+        
+        def confirm():
+            new_path = path_var.get().strip()
+            if not new_path:
+                messagebox.showerror("Error", "Path cannot be empty")
+                return
+            
+            if new_path != old_path and new_path in self.network_drives_list:
+                messagebox.showerror("Error", "Path already exists")
+                return
+            
+            # Update the path
+            index = self.network_drives_list.index(old_path)
+            self.network_drives_list[index] = new_path
+            
+            # Update current drive if needed
+            if self.current_drive_var.get() == old_path:
+                self.current_drive_var.set(new_path)
+            
+            self.load_network_drives_tree()
+            dialog.destroy()
+        
+        def cancel():
+            dialog.destroy()
+        
+        button_frame = ttk.Frame(dialog)
+        button_frame.pack(pady=10)
+        ttk.Button(button_frame, text="Browse", command=browse).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="OK", command=confirm).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Cancel", command=cancel).pack(side=tk.LEFT)
+        
+        # Bind Enter key
+        path_entry.bind('<Return>', lambda e: confirm())
     
     def apply_settings(self):
         """Apply settings without closing the window"""
@@ -507,13 +669,27 @@ Examples:
                 messagebox.showerror("Error", "Minimum delay cannot be greater than maximum delay")
                 return False
             
+            # Validate network drives
+            if not self.network_drives_list:
+                messagebox.showerror("Error", "At least one network drive must be configured")
+                return False
+            
+            current_drive = self.current_drive_var.get().strip()
+            if not current_drive or current_drive not in self.network_drives_list:
+                messagebox.showerror("Error", "Current network drive must be selected from configured drives")
+                return False
+            
             # Update settings in config data
             settings = self.config_data.setdefault("settings", {})
             settings["download_delay_min"] = self.delay_min_var.get()
             settings["download_delay_max"] = self.delay_max_var.get()
             settings["max_concurrent_downloads"] = self.max_concurrent_var.get()
-            settings["network_drive_path"] = self.network_drive_var.get().strip()
-            settings["target_directory"] = self.target_directory_var.get().strip()
+            settings["network_drive_paths"] = self.network_drives_list
+            settings["current_network_drive_path"] = current_drive
+            
+            # Remove legacy settings if they exist
+            settings.pop("network_drive_path", None)
+            settings.pop("target_directory", None)
             
             # Save to file
             config_path = Path("config/platforms.json")

@@ -75,6 +75,7 @@ class GameLibraryGUI:
         
         self.setup_ui()
         self.refresh_platform_list()
+        self.refresh_network_drive_list()
         
         # Set up managers
         self._setup_managers()
@@ -135,6 +136,20 @@ class GameLibraryGUI:
             width=30
         )
         self.platform_combo.pack(side=tk.LEFT, padx=(0, 10))
+        
+        # Network Drive selection
+        ttk.Label(top_frame, text="Network Drive:").pack(side=tk.LEFT, padx=(0, 5))
+        
+        self.current_network_drive = tk.StringVar()
+        self.current_network_drive.trace('w', self.on_network_drive_change)
+        
+        self.network_drive_combo = ttk.Combobox(
+            top_frame,
+            textvariable=self.current_network_drive,
+            state="readonly",
+            width=35
+        )
+        self.network_drive_combo.pack(side=tk.LEFT, padx=(0, 10))
         
         # Search
         ttk.Label(top_frame, text="Search:").pack(side=tk.LEFT, padx=(0, 5))
@@ -519,6 +534,39 @@ class GameLibraryGUI:
         if platforms and not self.current_platform.get():
             self.current_platform.set(list(platforms.keys())[0])
     
+    def refresh_network_drive_list(self):
+        """Refresh the network drive selection dropdown"""
+        network_drives = self.config_manager.get_network_drive_paths()
+        self.network_drive_combo['values'] = network_drives
+        
+        # Set current drive
+        current_drive = self.config_manager.get_current_network_drive_path()
+        if current_drive and current_drive in network_drives:
+            self.current_network_drive.set(current_drive)
+        elif network_drives:
+            self.current_network_drive.set(network_drives[0])
+            self.config_manager.set_current_network_drive_path(network_drives[0])
+    
+    def on_network_drive_change(self, *_args):
+        """Handle network drive selection change"""
+        drive = self.current_network_drive.get()
+        if drive:
+            try:
+                self.config_manager.set_current_network_drive_path(drive)
+                self.config_manager.save_config()
+                logger.info(f"Changed network drive to: {drive}")
+                
+                # Clear ROM cache since network drive changed
+                self.installation_status_manager.clear_existing_roms_cache()
+                
+                # Refresh installation status for current platform if any
+                platform = self.current_platform.get()
+                if platform:
+                    self.installation_status_manager.start_background_checking(platform)
+            except Exception as e:
+                logger.error(f"Error changing network drive: {e}")
+                messagebox.showerror("Error", f"Failed to change network drive: {e}")
+    
     def restore_last_state(self):
         """Restore the last application state"""
         import time
@@ -814,7 +862,23 @@ Usage:
         """Show the settings window"""
         try:
             settings_window = SettingsWindow(self.root, self.config_manager)
+            
+            # Store original callback for when window closes
+            original_destroy = settings_window.window.destroy if settings_window.window else None
+            
+            def on_settings_close():
+                # Refresh dropdowns in case they changed
+                self.refresh_platform_list()
+                self.refresh_network_drive_list()
+                if original_destroy:
+                    original_destroy()
+            
             settings_window.show()
+            
+            # Replace destroy method to include our refresh
+            if settings_window.window:
+                settings_window.window.destroy = on_settings_close
+                
         except Exception as e:
             logger.error(f"Error opening settings window: {e}")
             messagebox.showerror("Error", f"Failed to open settings: {e}")

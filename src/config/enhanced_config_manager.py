@@ -147,6 +147,80 @@ class EnhancedConfigManager:
         """Get list of all platform IDs"""
         return list(self.get_platforms().keys())
     
+    def get_network_drive_paths(self) -> List[str]:
+        """Get list of configured network drive paths"""
+        settings = self.get_settings()
+        
+        # Handle legacy config format
+        if 'network_drive_path' in settings and 'network_drive_paths' not in settings:
+            # Migrate from old format
+            legacy_path = settings['network_drive_path']
+            paths = [legacy_path] if legacy_path else ["//BATOCERA/share/roms"]
+            self.set_setting('network_drive_paths', paths)
+            self.set_setting('current_network_drive_path', paths[0])
+            # Remove legacy setting
+            if 'network_drive_path' in settings:
+                del settings['network_drive_path']
+            if 'target_directory' in settings:
+                del settings['target_directory']
+            self.save_config()
+            return paths
+        
+        return settings.get('network_drive_paths', ["//BATOCERA/share/roms"])
+    
+    def get_current_network_drive_path(self) -> str:
+        """Get the currently selected network drive path"""
+        settings = self.get_settings()
+        current = settings.get('current_network_drive_path')
+        
+        # Ensure current path is in the list of available paths
+        available_paths = self.get_network_drive_paths()
+        if not current or current not in available_paths:
+            if available_paths:
+                current = available_paths[0]
+                self.set_setting('current_network_drive_path', current)
+                self.save_config()
+            else:
+                current = "//BATOCERA/share/roms"
+        
+        return current
+    
+    def set_current_network_drive_path(self, path: str):
+        """Set the current network drive path"""
+        available_paths = self.get_network_drive_paths()
+        if path not in available_paths:
+            raise ValueError(f"Path '{path}' not in configured network drive paths")
+        
+        self.set_setting('current_network_drive_path', path)
+    
+    def add_network_drive_path(self, path: str):
+        """Add a new network drive path"""
+        paths = self.get_network_drive_paths()
+        if path not in paths:
+            paths.append(path)
+            self.set_setting('network_drive_paths', paths)
+            
+            # If this is the first path, make it current
+            if len(paths) == 1:
+                self.set_setting('current_network_drive_path', path)
+    
+    def remove_network_drive_path(self, path: str):
+        """Remove a network drive path"""
+        paths = self.get_network_drive_paths()
+        if path in paths:
+            paths.remove(path)
+            
+            # Ensure we have at least one path
+            if not paths:
+                paths = ["//BATOCERA/share/roms"]
+            
+            self.set_setting('network_drive_paths', paths)
+            
+            # Update current path if needed
+            current = self.get_setting('current_network_drive_path')
+            if current == path or current not in paths:
+                self.set_setting('current_network_drive_path', paths[0])
+    
     def get_platform_display_names(self) -> Dict[str, str]:
         """Get mapping of platform IDs to display names"""
         platforms = self.get_platforms()
@@ -227,15 +301,16 @@ class EnhancedConfigManager:
         return False
     
     def get_target_directory(self, platform_id: str) -> Optional[Path]:
-        """Get target directory for a platform"""
+        """Get target directory for a platform (current network drive + platform folder)"""
         platform_config = self.get_platform_config(platform_id)
         if not platform_config:
-            return None
+            return Path(self.get_current_network_drive_path())
         
-        base_dir = self.get_setting('target_directory', './local_roms')
-        target_folder = platform_config.get('target_folder', platform_id)
+        target_folder = platform_config.get('target_folder', platform_id.lower())
+        current_drive = self.get_current_network_drive_path()
         
-        return Path(base_dir) / target_folder
+        # Combine current network drive with platform folder
+        return Path(current_drive) / target_folder
     
     def get_temp_directory(self) -> Path:
         """Get temporary download directory"""

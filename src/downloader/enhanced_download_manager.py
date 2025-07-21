@@ -9,11 +9,14 @@ import requests
 import shutil
 import queue
 import threading
+import os
 from pathlib import Path
 from typing import List, Optional, Callable, Dict, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime
+import tkinter as tk
+from tkinter import messagebox
 
 from src.models.game_library import ROM
 from src.tools.pipeline_manager import ToolPipelineManager
@@ -550,10 +553,88 @@ class EnhancedDownloadManager:
         
         # Copy worker thread stopped
     
+    def _check_disk_space(self, target_path: Path, required_bytes: int) -> tuple[bool, str]:
+        """Check if there's enough disk space for the file"""
+        try:
+            # Get available space on target drive
+            if os.name == 'nt':  # Windows
+                # For network paths, try to get the actual network drive stats
+                try:
+                    statvfs = os.statvfs(str(target_path.parent))
+                    available_bytes = statvfs.f_bavail * statvfs.f_frsize
+                except (OSError, AttributeError):
+                    # Fallback for Windows network drives
+                    import ctypes
+                    free_bytes = ctypes.c_ulonglong(0)
+                    ctypes.windll.kernel32.GetDiskFreeSpaceExW(
+                        str(target_path.parent), 
+                        ctypes.pointer(free_bytes), 
+                        None, 
+                        None
+                    )
+                    available_bytes = free_bytes.value
+            else:  # Unix-like systems
+                statvfs = os.statvfs(str(target_path.parent))
+                available_bytes = statvfs.f_bavail * statvfs.f_frsize
+            
+            if available_bytes < required_bytes:
+                # Format sizes for user-friendly display
+                def format_bytes(bytes_val):
+                    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+                        if bytes_val < 1024.0:
+                            return f"{bytes_val:.1f} {unit}"
+                        bytes_val /= 1024.0
+                    return f"{bytes_val:.1f} PB"
+                
+                error_msg = (
+                    f"Insufficient disk space on target drive.\n\n"
+                    f"Required: {format_bytes(required_bytes)}\n"
+                    f"Available: {format_bytes(available_bytes)}\n\n"
+                    f"Please free up space on the Batocera device or check the network connection."
+                )
+                return False, error_msg
+            
+            return True, ""
+            
+        except Exception as e:
+            # If we can't check disk space, log warning but allow the copy to proceed
+            logger.warning(f"Could not check disk space for {target_path}: {e}")
+            return True, ""
+    
+    def _show_disk_space_error(self, error_msg: str):
+        """Show disk space error dialog to user"""
+        try:
+            # Create a simple error dialog
+            root = tk.Tk()
+            root.withdraw()  # Hide the main window
+            root.attributes('-topmost', True)  # Keep dialog on top
+            
+            messagebox.showerror(
+                "Disk Space Error",
+                error_msg,
+                parent=root
+            )
+            
+            root.destroy()
+            
+        except Exception as e:
+            # If GUI dialog fails, at least log the error
+            logger.error(f"Disk space error (dialog failed): {error_msg}")
+            logger.error(f"Dialog error: {e}")
+    
     def _perform_network_copy(self, item: CopyQueueItem) -> bool:
         """Perform network copy with progress tracking"""
         try:
             file_size = item.src_file.stat().st_size
+            
+            # Check disk space before starting copy
+            has_space, error_msg = self._check_disk_space(item.dst_file, file_size)
+            if not has_space:
+                # Show error dialog and stop all downloads
+                self._show_disk_space_error(error_msg)
+                self.cancel_downloads()
+                return False
+            
             copied_bytes = 0
             buffer_size = 64 * 1024  # 64KB buffer
             start_time = time.time()

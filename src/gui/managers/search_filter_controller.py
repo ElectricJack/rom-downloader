@@ -82,6 +82,8 @@ class SearchFilterController:
     def game_matches_tags(self, game: Game, filter_tags: Set[str] = None) -> bool:
         """Check if game matches current tag filters using advanced filtering logic.
         
+        A game matches if ANY of its ROM variants match the filter criteria.
+        
         Args:
             game: Game to check
             filter_tags: Set of filter tags to match against
@@ -94,14 +96,27 @@ class SearchFilterController:
             filter_tags = self.gui_parent.tag_filter_manager.get_active_filters()
         
         if not filter_tags:
+            logger.debug(f"No filters active, game '{game.display_name}' matches")
             return True
             
         # Create filter criteria from selected tags
         criteria = self.advanced_filter.create_filter_criteria(filter_tags)
         
-        # Check if game matches criteria using all its tags
+        # Check if ANY variant of this game matches the criteria
+        # This is the correct logic: a game should be shown if it has at least one matching variant
+        platform = self.gui_parent.current_platform.get()
+        if platform:
+            variants = game.get_variants_for_platform(platform)
+            for rom in variants:
+                if self.advanced_filter.rom_matches_criteria(rom.tags, criteria):
+                    logger.debug(f"Game '{game.display_name}' matches because variant '{rom.filename}' with tags {rom.tags} matches filters {filter_tags}")
+                    return True
+        
+        # Fallback: check combined tags (for backwards compatibility)
         game_tags = game.get_all_tags()
-        return self.advanced_filter.rom_matches_criteria(game_tags, criteria)
+        result = self.advanced_filter.rom_matches_criteria(game_tags, criteria)
+        logger.debug(f"Game '{game.display_name}' fallback check with combined tags {game_tags} matches filters {filter_tags}: {result}")
+        return result
     
     def rom_matches_tags(self, rom: ROM, filter_tags: Set[str] = None) -> bool:
         """Check if ROM variant matches current tag filters using advanced filtering logic.

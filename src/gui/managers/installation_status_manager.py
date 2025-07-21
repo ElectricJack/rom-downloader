@@ -350,6 +350,11 @@ class InstallationStatusManager:
                     cached_roms += 1
         
         logger.info(f"Cached installation status for {total_roms} ROMs, {cached_roms} installed")
+        
+        # Mark platform as dirty so installation status gets saved to state file
+        if hasattr(self.gui, 'state_manager') and self.gui.state_manager:
+            self.gui.state_manager.platform_dirty = True
+            logger.debug("Marked platform as dirty for state persistence")
     
     def _async_update_tree_from_cache(self):
         """Fast tree update using cached installation data."""

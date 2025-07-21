@@ -59,7 +59,7 @@ class DownloadController:
     
     def download_selected(self):
         """Download queued ROMs"""
-        platform = self.gui.current_platform.get()
+        platform = self.gui.get_current_platform_key()
         if not platform:
             messagebox.showwarning("Warning", "Please select a platform first")
             return
@@ -220,7 +220,7 @@ class DownloadController:
             self.installation_count += 1
             
             # Remove ROM from selection queue after successful installation
-            platform = self.gui.current_platform.get()
+            platform = self.gui.get_current_platform_key()
             if platform:
                 # Find the game key for this ROM
                 for game in self.gui.current_games:
@@ -248,7 +248,7 @@ class DownloadController:
         messagebox.showinfo("Installation Complete", f"Successfully installed {self.installation_count} out of {self.total_queued_count} ROMs")
         
         # Refresh installed ROM cache
-        platform = self.gui.current_platform.get()
+        platform = self.gui.get_current_platform_key()
         if platform:
             self.gui.installation_status_manager.check_installed_roms()
     
@@ -265,7 +265,7 @@ class DownloadController:
                               "Some copies may still be in progress.")
         
         # Refresh installed ROM cache
-        platform = self.gui.current_platform.get()
+        platform = self.gui.get_current_platform_key()
         if platform:
             self.gui.installation_status_manager.check_installed_roms()
     

@@ -88,6 +88,21 @@ class GameLibraryGUI:
         
         logger.info("Game library GUI initialized")
     
+    def _get_platform_key_from_display_name(self, display_name: str) -> Optional[str]:
+        """Convert display name back to platform key"""
+        platforms = self.config_manager.get_platform_display_names()
+        for key, name in platforms.items():
+            if name == display_name:
+                return key
+        return None
+    
+    def get_current_platform_key(self) -> Optional[str]:
+        """Get the current platform key (for use by manager classes)"""
+        display_name = self.current_platform.get()
+        if display_name:
+            return self._get_platform_key_from_display_name(display_name)
+        return None
+    
     def _setup_managers(self):
         """Set up manager dependencies after UI is created"""
         # Set up download controller with UI components and managers
@@ -529,10 +544,14 @@ class GameLibraryGUI:
     def refresh_platform_list(self):
         """Refresh the platform selection dropdown"""
         platforms = self.config_manager.get_platform_display_names()
-        self.platform_combo['values'] = list(platforms.keys())
+        # Use display names for dropdown but maintain order from config
+        display_names = [platforms[key] for key in platforms.keys()]
+        self.platform_combo['values'] = display_names
         
         if platforms and not self.current_platform.get():
-            self.current_platform.set(list(platforms.keys())[0])
+            # Set using display name of first platform
+            first_key = list(platforms.keys())[0]
+            self.current_platform.set(platforms[first_key])
     
     def refresh_network_drive_list(self):
         """Refresh the network drive selection dropdown"""
@@ -560,9 +579,11 @@ class GameLibraryGUI:
                 self.installation_status_manager.clear_existing_roms_cache()
                 
                 # Refresh installation status for current platform if any
-                platform = self.current_platform.get()
-                if platform:
-                    self.installation_status_manager.start_background_checking(platform)
+                display_name = self.current_platform.get()
+                if display_name:
+                    platform = self._get_platform_key_from_display_name(display_name)
+                    if platform:
+                        self.installation_status_manager.start_background_checking(platform)
             except Exception as e:
                 logger.error(f"Error changing network drive: {e}")
                 messagebox.showerror("Error", f"Failed to change network drive: {e}")
@@ -578,25 +599,31 @@ class GameLibraryGUI:
         if last_platform:
             available_platforms = self.config_manager.get_platform_display_names()
             if last_platform in available_platforms:
-                self.current_platform.set(last_platform)
-                logger.info(f"Restored last selected platform: {last_platform}")
+                # Convert platform key to display name for the dropdown
+                display_name = available_platforms[last_platform]
+                self.current_platform.set(display_name)
+                logger.info(f"Restored last selected platform: {last_platform} ({display_name})")
             else:
                 logger.warning(f"Last selected platform '{last_platform}' not available")
         
         # Refresh the display to show any existing games and selections
-        platform = self.current_platform.get()
-        if platform:
-            tag_start = time.time()
-            platform_tags = self.state_manager.get_platform_tags(platform)
-            categorized_tags = self.library_processor.categorize_tags(platform_tags) if platform_tags else {}
-            self.tag_filter_manager.update_tag_buttons(platform, categorized_tags)
-            tag_time = time.time() - tag_start
-            logger.info(f"update_tag_buttons() took {tag_time:.2f}s")
+        display_name = self.current_platform.get()
+        if display_name:
+            # Convert display name back to platform key
+            platform = self._get_platform_key_from_display_name(display_name)
             
-            refresh_start = time.time()
-            self.refresh_game_list()
-            refresh_time = time.time() - refresh_start
-            logger.info(f"refresh_game_list() took {refresh_time:.2f}s")
+            if platform:
+                tag_start = time.time()
+                platform_tags = self.state_manager.get_platform_tags(platform)
+                categorized_tags = self.library_processor.categorize_tags(platform_tags) if platform_tags else {}
+                self.tag_filter_manager.update_tag_buttons(platform, categorized_tags)
+                tag_time = time.time() - tag_start
+                logger.info(f"update_tag_buttons() took {tag_time:.2f}s")
+                
+                refresh_start = time.time()
+                self.refresh_game_list()
+                refresh_time = time.time() - refresh_start
+                logger.info(f"refresh_game_list() took {refresh_time:.2f}s")
         
         total_time = time.time() - start_time
         logger.info(f"=== restore_last_state() completed in {total_time:.2f}s ===")
@@ -606,11 +633,18 @@ class GameLibraryGUI:
         import time
         start_time = time.time()
         
-        platform = self.current_platform.get()
-        if platform:
-            logger.info(f"=== on_platform_change() to {platform} ===")
+        display_name = self.current_platform.get()
+        if display_name:
+            # Convert display name back to platform key
+            platform = self._get_platform_key_from_display_name(display_name)
             
-            # Save the last selected platform
+            if not platform:
+                logger.warning(f"Could not find platform key for display name: {display_name}")
+                return
+                
+            logger.info(f"=== on_platform_change() to {platform} ({display_name}) ===")
+            
+            # Save the last selected platform (using the key)
             save_start = time.time()
             self.state_manager.set_last_selected_platform(platform)
             save_time = time.time() - save_start
@@ -696,9 +730,14 @@ class GameLibraryGUI:
     
     def scan_roms(self):
         """Scan for ROMs on the selected platform"""
-        platform = self.current_platform.get()
-        if not platform:
+        display_name = self.current_platform.get()
+        if not display_name:
             messagebox.showwarning("Warning", "Please select a platform first")
+            return
+        
+        platform = self._get_platform_key_from_display_name(display_name)
+        if not platform:
+            messagebox.showerror("Error", f"Invalid platform: {display_name}")
             return
         
         if self.download_controller.is_downloading():
@@ -759,11 +798,13 @@ class GameLibraryGUI:
     def _scan_complete(self, count: int):
         """Handle scan completion"""
         self.update_status(f"Scan complete: {count} games found")
-        platform = self.current_platform.get()
-        platform_tags = self.state_manager.get_platform_tags(platform)
-        categorized_tags = self.library_processor.categorize_tags(platform_tags) if platform_tags else {}
-        self.tag_filter_manager.update_tag_buttons(platform, categorized_tags)
-        self.refresh_game_list()
+        display_name = self.current_platform.get()
+        platform = self._get_platform_key_from_display_name(display_name) if display_name else None
+        if platform:
+            platform_tags = self.state_manager.get_platform_tags(platform)
+            categorized_tags = self.library_processor.categorize_tags(platform_tags) if platform_tags else {}
+            self.tag_filter_manager.update_tag_buttons(platform, categorized_tags)
+            self.refresh_game_list()
     
     
     
@@ -775,7 +816,11 @@ class GameLibraryGUI:
     
     def clear_selections(self):
         """Clear all queued items for current platform"""
-        platform = self.current_platform.get()
+        display_name = self.current_platform.get()
+        if not display_name:
+            return
+        
+        platform = self._get_platform_key_from_display_name(display_name)
         if not platform:
             return
         

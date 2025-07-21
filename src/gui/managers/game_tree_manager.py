@@ -35,7 +35,7 @@ class GameTreeManager:
         import time
         start_time = time.time()
         
-        platform = self.gui.current_platform.get()
+        platform = self.gui.get_current_platform_key()
         if not platform:
             return
 
@@ -50,19 +50,6 @@ class GameTreeManager:
 
         self.rebuild_game_tree(games, platform)
         self.apply_filters_to_tree()
-
-        # Check if we need to rebuild the tree (data has changed)
-        # if self.gui.current_games != games:
-        #     rebuild_start = time.time()
-        #     self.rebuild_game_tree(games, platform)
-        #     rebuild_time = time.time() - rebuild_start
-        #     logger.info(f"rebuild_game_tree() took {rebuild_time:.2f}s")
-        # else:
-        #     # Just apply filters to existing tree (much faster)
-        #     filter_start = time.time()
-        #     self.apply_filters_to_tree()
-        #     filter_time = time.time() - filter_start
-        #     logger.info(f"apply_filters_to_tree() took {filter_time:.2f}s")
         
         total_time = time.time() - start_time
         logger.info(f"=== refresh_game_list() completed in {total_time:.2f}s ===")
@@ -158,7 +145,7 @@ class GameTreeManager:
     
     def apply_filters_to_tree(self):
         """Apply current filters by rebuilding tree from scratch with filtered data"""
-        platform = self.gui.current_platform.get()
+        platform = self.gui.get_current_platform_key()
         if not platform:
             return
         

@@ -84,7 +84,7 @@ class SearchFilterController:
         
         # Check if ANY variant of this game matches the criteria
         # This is the correct logic: a game should be shown if it has at least one matching variant
-        platform = self.gui_parent.current_platform.get()
+        platform = self.gui_parent.get_current_platform_key()
         if platform:
             variants = game.get_variants_for_platform(platform)
             for rom in variants:

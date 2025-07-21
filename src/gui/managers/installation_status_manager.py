@@ -170,7 +170,7 @@ class InstallationStatusManager:
         """Scan target directory for installed ROMs and refresh display."""
         from tkinter import messagebox
         
-        platform = self.gui.current_platform.get()
+        platform = self.gui.get_current_platform_key()
         if not platform:
             messagebox.showwarning("Warning", "Please select a platform first")
             return
@@ -292,7 +292,7 @@ class InstallationStatusManager:
             if not self._gui_active or not self.current_games or self._async_update_cancelled:
                 return
             
-            platform = self.gui.current_platform.get()
+            platform = self.gui.get_current_platform_key()
             if not platform:
                 return
             
@@ -439,7 +439,7 @@ class InstallationStatusManager:
             if not self._gui_active or not self.current_games or self._async_update_cancelled:
                 return
             
-            platform = self.gui.current_platform.get()
+            platform = self.gui.get_current_platform_key()
             if not platform:
                 return
             
@@ -607,7 +607,7 @@ class InstallationStatusManager:
         if not self.current_games:
             return
         
-        platform = self.gui.current_platform.get()
+        platform = self.gui.get_current_platform_key()
         if not platform:
             return
         

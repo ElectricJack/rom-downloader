@@ -41,7 +41,7 @@ class TreeEventHandler:
         if not item:
             return
         
-        platform = self.gui.current_platform.get()
+        platform = self.gui.get_current_platform_key()
         if not platform:
             return
         

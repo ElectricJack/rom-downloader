@@ -35,7 +35,7 @@ class QueueManager:
         if not selections:
             return
         
-        platform = self.parent_gui.current_platform.get()
+        platform = self.parent_gui.get_current_platform_key()
         if not platform:
             return
         
@@ -103,7 +103,7 @@ class QueueManager:
         if not selections:
             return
         
-        platform = self.parent_gui.current_platform.get()
+        platform = self.parent_gui.get_current_platform_key()
         if not platform:
             return
         
@@ -145,7 +145,7 @@ class QueueManager:
         if not selections:
             return
         
-        platform = self.parent_gui.current_platform.get()
+        platform = self.parent_gui.get_current_platform_key()
         if not platform:
             return
         
@@ -248,7 +248,7 @@ class QueueManager:
     
     def queue_all_filtered_games(self) -> None:
         """Add all currently visible/filtered games to the queue"""
-        platform = self.parent_gui.current_platform.get()
+        platform = self.parent_gui.get_current_platform_key()
         if not platform:
             return
         

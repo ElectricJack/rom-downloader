@@ -34,7 +34,7 @@ class FileOperationsManager:
         
     def export_selections(self) -> None:
         """Export download queue to file."""
-        platform = self.gui.current_platform.get()
+        platform = self.gui.get_current_platform_key()
         if not platform:
             messagebox.showwarning("Warning", "Please select a platform first")
             return
@@ -119,7 +119,7 @@ class FileOperationsManager:
     
     def open_roms_folder(self) -> None:
         """Open the ROMs folder for the currently selected platform."""
-        current_platform = self.gui.current_platform.get()
+        current_platform = self.gui.get_current_platform_key()
         if not current_platform:
             messagebox.showwarning("No Platform", "Please select a platform first.")
             return

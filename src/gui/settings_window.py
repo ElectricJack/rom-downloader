@@ -59,7 +59,7 @@ class SettingsWindow:
         self.platform_folder_var = tk.StringVar()
         self.platform_extensions_var = tk.StringVar()
         self.platform_pattern_var = tk.StringVar()
-        self.platform_extract_var = tk.BooleanVar()
+        self.platform_pipeline = []  # List of tool pipeline steps
     
     def show(self):
         """Show the settings window"""
@@ -268,8 +268,19 @@ Examples:
         
         ttk.Label(left_frame, text="Platforms:").pack(anchor=tk.W)
         
+        # Platform buttons (moved above tree)
+        platform_buttons_frame = ttk.Frame(left_frame)
+        platform_buttons_frame.pack(fill=tk.X, pady=(0, 5))
+        
+        ttk.Button(platform_buttons_frame, text="Add Platform", command=self.add_platform).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(platform_buttons_frame, text="Delete Platform", command=self.delete_platform).pack(side=tk.LEFT)
+        
+        # Tree container frame
+        tree_frame = ttk.Frame(left_frame)
+        tree_frame.pack(fill=tk.BOTH, expand=True)
+        
         # Platform tree
-        self.platforms_tree = ttk.Treeview(left_frame, columns=('name', 'url'), show='tree headings')
+        self.platforms_tree = ttk.Treeview(tree_frame, columns=('name', 'url'), show='tree headings')
         self.platforms_tree.heading('#0', text='Key')
         self.platforms_tree.heading('name', text='Name')
         self.platforms_tree.heading('url', text='URL')
@@ -278,7 +289,7 @@ Examples:
         self.platforms_tree.column('url', width=200)
         
         # Scrollbar for tree
-        tree_scroll = ttk.Scrollbar(left_frame, orient=tk.VERTICAL, command=self.platforms_tree.yview)
+        tree_scroll = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.platforms_tree.yview)
         self.platforms_tree.configure(yscrollcommand=tree_scroll.set)
         
         self.platforms_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -286,13 +297,6 @@ Examples:
         
         # Bind tree selection
         self.platforms_tree.bind('<<TreeviewSelect>>', self.on_platform_select)
-        
-        # Platform buttons
-        platform_buttons_frame = ttk.Frame(left_frame)
-        platform_buttons_frame.pack(fill=tk.X, pady=5)
-        
-        ttk.Button(platform_buttons_frame, text="Add Platform", command=self.add_platform).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(platform_buttons_frame, text="Delete Platform", command=self.delete_platform).pack(side=tk.LEFT)
         
         # Right side - Platform form
         right_frame = ttk.Frame(paned_window)
@@ -333,8 +337,39 @@ Examples:
         ttk.Label(self.platform_form_frame, text="(regex pattern)", font=('TkDefaultFont', 8)).grid(row=row, column=2, sticky=tk.W, padx=5)
         row += 1
         
-        ttk.Checkbutton(self.platform_form_frame, text="Extract archives", variable=self.platform_extract_var).grid(row=row, column=1, sticky=tk.W, padx=5, pady=5)
-        row += 1
+        # Tool Pipeline section
+        ttk.Label(self.platform_form_frame, text="Tool Pipeline:").grid(row=row, column=0, sticky=tk.NW, padx=5, pady=5)
+        
+        # Create frame for tool pipeline
+        pipeline_frame = ttk.Frame(self.platform_form_frame)
+        pipeline_frame.grid(row=row, column=1, columnspan=2, sticky=tk.EW, padx=5, pady=5)
+        
+        # Tool pipeline tree
+        self.pipeline_tree = ttk.Treeview(pipeline_frame, columns=('tool_id', 'conditions', 'parameters'), show='headings', height=4)
+        self.pipeline_tree.heading('tool_id', text='Tool')
+        self.pipeline_tree.heading('conditions', text='Conditions')
+        self.pipeline_tree.heading('parameters', text='Parameters')
+        self.pipeline_tree.column('tool_id', width=120)
+        self.pipeline_tree.column('conditions', width=150)
+        self.pipeline_tree.column('parameters', width=200)
+        
+        pipeline_scroll = ttk.Scrollbar(pipeline_frame, orient=tk.VERTICAL, command=self.pipeline_tree.yview)
+        self.pipeline_tree.configure(yscrollcommand=pipeline_scroll.set)
+        
+        self.pipeline_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        pipeline_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Pipeline buttons
+        pipeline_buttons = ttk.Frame(self.platform_form_frame)
+        pipeline_buttons.grid(row=row+1, column=1, sticky=tk.W, padx=5, pady=5)
+        
+        ttk.Button(pipeline_buttons, text="Add Tool", command=self.add_pipeline_tool).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(pipeline_buttons, text="Edit Tool", command=self.edit_pipeline_tool).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(pipeline_buttons, text="Remove Tool", command=self.remove_pipeline_tool).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(pipeline_buttons, text="Move Up", command=self.move_pipeline_tool_up).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(pipeline_buttons, text="Move Down", command=self.move_pipeline_tool_down).pack(side=tk.LEFT)
+        
+        row += 2
         
         # Configure column weights
         self.platform_form_frame.columnconfigure(1, weight=1)
@@ -377,7 +412,10 @@ Examples:
         self.platform_extensions_var.set(", ".join(extensions))
         
         self.platform_pattern_var.set(platform.get("file_pattern", ""))
-        self.platform_extract_var.set(platform.get("extract_archives", False))
+        
+        # Load tool pipeline
+        self.platform_pipeline = platform.get("tool_pipeline", [])
+        self.load_pipeline_tree()
     
     def add_platform(self):
         """Add a new platform"""
@@ -413,7 +451,7 @@ Examples:
                 "target_folder": key.lower(),
                 "file_extensions": [".zip"],
                 "file_pattern": ".*\\.zip$",
-                "extract_archives": False
+                "tool_pipeline": []
             }
             
             # Reload tree and select new platform
@@ -453,7 +491,8 @@ Examples:
                 self.platform_folder_var.set("")
                 self.platform_extensions_var.set("")
                 self.platform_pattern_var.set("")
-                self.platform_extract_var.set(False)
+                self.platform_pipeline = []
+                self.load_pipeline_tree()
     
     def update_platform(self):
         """Update the selected platform with form data"""
@@ -495,7 +534,7 @@ Examples:
             "target_folder": self.platform_folder_var.get().strip() or self.current_platform_key.lower(),
             "file_extensions": extensions,
             "file_pattern": pattern,
-            "extract_archives": self.platform_extract_var.get()
+            "tool_pipeline": self.platform_pipeline.copy()
         }
         
         # Reload tree to show updated data
@@ -650,6 +689,180 @@ Examples:
         
         # Bind Enter key
         path_entry.bind('<Return>', lambda e: confirm())
+    
+    def load_pipeline_tree(self):
+        """Load tool pipeline into the tree view"""
+        # Clear existing items
+        if hasattr(self, 'pipeline_tree'):
+            for item in self.pipeline_tree.get_children():
+                self.pipeline_tree.delete(item)
+            
+            # Load pipeline steps
+            for i, step in enumerate(self.platform_pipeline):
+                tool_id = step.get('tool_id', '')
+                
+                # Format conditions - simplified
+                conditions = step.get('conditions', {})
+                file_types = conditions.get('file_types', [])
+                cond_text = ", ".join(file_types) if file_types else ""
+                
+                # Format parameters as JSON string for simple editing
+                parameters = step.get('parameters', {})
+                import json
+                param_text = json.dumps(parameters) if parameters else "{}"
+                
+                self.pipeline_tree.insert('', 'end', values=(tool_id, cond_text, param_text))
+    
+    def add_pipeline_tool(self):
+        """Add a new tool to the pipeline"""
+        # Add a default tool entry
+        new_tool = {
+            "tool_id": "zip_extractor",
+            "parameters": {"remove_original": True},
+            "conditions": {"file_types": [".zip"]}
+        }
+        
+        self.platform_pipeline.append(new_tool)
+        self.load_pipeline_tree()
+        
+        # Select the new item for editing
+        children = self.pipeline_tree.get_children()
+        if children:
+            self.pipeline_tree.selection_set(children[-1])
+    
+    def edit_pipeline_tool(self):
+        """Edit the selected tool inline"""
+        selection = self.pipeline_tree.selection()
+        if not selection:
+            messagebox.showwarning("Warning", "Please select a tool to edit")
+            return
+        
+        item = selection[0]
+        step_index = self.pipeline_tree.index(item)
+        
+        # Get current values
+        values = self.pipeline_tree.item(item, 'values')
+        current_tool = values[0] if len(values) > 0 else ''
+        current_conditions = values[1] if len(values) > 1 else ''
+        current_params = values[2] if len(values) > 2 else '{}'
+        
+        # Create simple edit dialog
+        dialog = tk.Toplevel(self.window)
+        dialog.title("Edit Tool")
+        dialog.geometry("500x300")
+        dialog.grab_set()
+        
+        # Tool ID dropdown
+        ttk.Label(dialog, text="Tool Type:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
+        tool_var = tk.StringVar(value=current_tool)
+        tool_combo = ttk.Combobox(dialog, textvariable=tool_var, width=30, state="readonly")
+        tool_combo['values'] = ['zip_extractor', 'chd_converter', 'file_mover', 'file_renamer']
+        tool_combo.grid(row=0, column=1, padx=5, pady=5, sticky=tk.EW)
+        
+        # File types (simplified conditions)
+        ttk.Label(dialog, text="File Types:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
+        types_var = tk.StringVar(value=current_conditions)
+        ttk.Entry(dialog, textvariable=types_var, width=40).grid(row=1, column=1, padx=5, pady=5, sticky=tk.EW)
+        ttk.Label(dialog, text="(comma-separated: .zip,.7z)", font=('TkDefaultFont', 8)).grid(row=2, column=1, sticky=tk.W, padx=5)
+        
+        # Parameters as JSON text
+        ttk.Label(dialog, text="Parameters:").grid(row=3, column=0, sticky=tk.NW, padx=5, pady=5)
+        params_var = tk.StringVar(value=current_params)
+        params_text = tk.Text(dialog, width=40, height=8)
+        params_text.grid(row=3, column=1, padx=5, pady=5, sticky=tk.EW)
+        params_text.insert('1.0', current_params)
+        ttk.Label(dialog, text="(JSON format: {\"key\": \"value\"})", font=('TkDefaultFont', 8)).grid(row=4, column=1, sticky=tk.W, padx=5)
+        
+        dialog.grid_columnconfigure(1, weight=1)
+        
+        def save_tool():
+            try:
+                # Parse parameters as JSON
+                import json
+                params_json = params_text.get('1.0', tk.END).strip()
+                if not params_json:
+                    params_json = '{}'
+                parameters = json.loads(params_json)
+                
+                # Parse file types
+                file_types_str = types_var.get().strip()
+                if file_types_str:
+                    file_types = [ft.strip() for ft in file_types_str.split(',') if ft.strip()]
+                else:
+                    file_types = []
+                
+                # Update the tool
+                self.platform_pipeline[step_index] = {
+                    "tool_id": tool_var.get(),
+                    "parameters": parameters,
+                    "conditions": {"file_types": file_types} if file_types else {}
+                }
+                
+                self.load_pipeline_tree()
+                dialog.destroy()
+                
+            except json.JSONDecodeError as e:
+                messagebox.showerror("Error", f"Invalid JSON in parameters: {e}")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to save tool: {e}")
+        
+        # Buttons
+        button_frame = ttk.Frame(dialog)
+        button_frame.grid(row=5, column=0, columnspan=2, pady=10)
+        ttk.Button(button_frame, text="Save", command=save_tool).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Cancel", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
+    
+    def remove_pipeline_tool(self):
+        """Remove selected tool from pipeline"""
+        selection = self.pipeline_tree.selection()
+        if not selection:
+            messagebox.showwarning("Warning", "Please select a tool to remove")
+            return
+        
+        item = selection[0]
+        step_index = self.pipeline_tree.index(item)
+        
+        if messagebox.askyesno("Confirm Remove", "Are you sure you want to remove this tool from the pipeline?"):
+            del self.platform_pipeline[step_index]
+            self.load_pipeline_tree()
+    
+    def move_pipeline_tool_up(self):
+        """Move selected tool up in the pipeline"""
+        selection = self.pipeline_tree.selection()
+        if not selection:
+            messagebox.showwarning("Warning", "Please select a tool to move")
+            return
+        
+        item = selection[0]
+        step_index = self.pipeline_tree.index(item)
+        
+        if step_index > 0:
+            # Swap with previous item
+            self.platform_pipeline[step_index], self.platform_pipeline[step_index - 1] = \
+                self.platform_pipeline[step_index - 1], self.platform_pipeline[step_index]
+            self.load_pipeline_tree()
+            # Reselect the moved item
+            new_item = self.pipeline_tree.get_children()[step_index - 1]
+            self.pipeline_tree.selection_set(new_item)
+    
+    def move_pipeline_tool_down(self):
+        """Move selected tool down in the pipeline"""
+        selection = self.pipeline_tree.selection()
+        if not selection:
+            messagebox.showwarning("Warning", "Please select a tool to move")
+            return
+        
+        item = selection[0]
+        step_index = self.pipeline_tree.index(item)
+        
+        if step_index < len(self.platform_pipeline) - 1:
+            # Swap with next item
+            self.platform_pipeline[step_index], self.platform_pipeline[step_index + 1] = \
+                self.platform_pipeline[step_index + 1], self.platform_pipeline[step_index]
+            self.load_pipeline_tree()
+            # Reselect the moved item
+            new_item = self.pipeline_tree.get_children()[step_index + 1]
+            self.pipeline_tree.selection_set(new_item)
     
     def apply_settings(self):
         """Apply settings without closing the window"""

@@ -9,6 +9,7 @@ This module provides the InstallationStatusManager class which handles:
 """
 
 import logging
+import re
 import threading
 import time
 from pathlib import Path
@@ -123,10 +124,11 @@ class InstallationStatusManager:
         """
         Perform precise ROM matching and return both result and actual installed filename.
         Uses cached filename lookup for O(1) performance instead of directory scanning.
+        Now uses precise matching that preserves region/revision info instead of overly broad normalization.
         
         Args:
-            rom_filename: The ROM filename to check (e.g., "007 - Everything or Nothing (Japan).zip")
-            existing_roms: Set of existing ROM stems (case-insensitive, no extensions)
+            rom_filename: The ROM filename to check (e.g., "007 - Agent Under Fire (USA) (Rev 1).zip")
+            existing_roms: Set of existing ROM stems (case-insensitive, no extensions) 
             target_dir: Target directory (used for cache validation)
         
         Returns:
@@ -137,10 +139,10 @@ class InstallationStatusManager:
         if '.' in stem:
             stem = '.'.join(stem.split('.')[:-1])
         
-        # Try different matching strategies using cached lookups
+        # Try precise matching strategies that preserve region/revision info
         candidates = [
-            stem.lower().strip(),  # Strategy 1: Exact match
-            self.rom_filter._normalize_name(stem)  # Strategy 2: Normalized match
+            stem.lower().strip(),  # Strategy 1: Exact match (case-insensitive)
+            self._precise_normalize_name(stem)  # Strategy 2: Precise normalize (keeps regions)
         ]
         
         for candidate in candidates:
@@ -150,15 +152,38 @@ class InstallationStatusManager:
                 if actual_filename:
                     return True, actual_filename
         
-        # Strategy 3: Check for same ROM different format
-        normalized_name = self.rom_filter._normalize_name(stem)
-        for existing_rom in existing_roms:
-            if self._are_same_rom_different_format(normalized_name, existing_rom):
-                actual_filename = self._normalized_to_actual.get(existing_rom)
-                if actual_filename:
-                    return True, actual_filename
+        # Strategy 3: Check installed files to see if any match this ROM precisely
+        rom_precise = self._precise_normalize_name(stem)
+        for existing_normalized, actual_filename in self._normalized_to_actual.items():
+            if existing_normalized == rom_precise:
+                return True, actual_filename
         
         return False, None
+    
+    def _precise_normalize_name(self, name: str) -> str:
+        """Normalize ROM name while preserving region and revision information.
+        
+        Unlike _normalize_name(), this keeps parenthetical content that's important
+        for distinguishing between ROM variants.
+        """
+        normalized = name.lower().strip()
+        
+        # Remove file extensions
+        rom_extensions = ['.zip', '.7z', '.rar', '.chd', '.cdi', '.gdi', '.bin', '.cue', '.iso', 
+                         '.rvz', '.wux', '.wud', '.gba', '.gbc', '.gb', '.nes', '.sfc', '.smc', 
+                         '.n64', '.z64', '.v64', '.nds', '.vb', '.a26', '.a52', '.a78', '.pce']
+        
+        for ext in rom_extensions:
+            if normalized.endswith(ext):
+                normalized = normalized[:-len(ext)]
+                break
+        
+        # Normalize whitespace and separators but KEEP parenthetical content
+        normalized = re.sub(r'\s*[-_]\s*', ' ', normalized)  # Normalize separators  
+        normalized = re.sub(r'\s+', ' ', normalized)  # Normalize multiple spaces
+        normalized = normalized.strip()
+        
+        return normalized
     
     def _build_filename_cache(self, target_dir: Path):
         """Build efficient lookup maps by scanning directory once"""
@@ -180,14 +205,19 @@ class InstallationStatusManager:
                     actual_filename = file_path.name
                     file_stem = file_path.stem
                     
-                    # Build normalized name lookup
-                    file_normalized = self.rom_filter._normalize_name(file_stem)
+                    # Build precise normalized name lookup (preserves regions/revisions)
+                    file_normalized = self._precise_normalize_name(file_stem)
                     self._normalized_to_actual[file_normalized] = actual_filename
                     
-                    # Also add case-insensitive direct lookup
+                    # Also add exact case-insensitive lookup for direct matches
+                    file_exact = file_stem.lower().strip()
+                    self._normalized_to_actual[file_exact] = actual_filename
+                    
+                    # Case-insensitive filename cache
                     self._actual_files_cache[actual_filename.lower()] = actual_filename
                         
             logger.info(f"Built filename cache: {file_count} ROM files found")
+            logger.debug(f"Sample normalized keys: {list(self._normalized_to_actual.keys())[:5]}")
                         
         except Exception as e:
             logger.error(f"Error building filename cache: {e}")

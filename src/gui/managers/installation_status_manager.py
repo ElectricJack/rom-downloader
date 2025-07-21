@@ -39,6 +39,9 @@ class InstallationStatusManager:
         self.gui = gui
         self.existing_roms: Set[str] = set()
         self._async_update_cancelled = False
+        # New: Efficient filename lookup maps
+        self._normalized_to_actual: Dict[str, str] = {}  # normalized_name -> actual_filename
+        self._actual_files_cache: Dict[str, str] = {}    # actual_filename.lower() -> actual_filename
         
     @property
     def config_manager(self):
@@ -119,11 +122,12 @@ class InstallationStatusManager:
     def _precise_rom_match_with_filename(self, rom_filename: str, existing_roms: set, target_dir: Path) -> tuple[bool, Optional[str]]:
         """
         Perform precise ROM matching and return both result and actual installed filename.
+        Uses cached filename lookup for O(1) performance instead of directory scanning.
         
         Args:
             rom_filename: The ROM filename to check (e.g., "007 - Everything or Nothing (Japan).zip")
             existing_roms: Set of existing ROM stems (case-insensitive, no extensions)
-            target_dir: Target directory to search for actual files
+            target_dir: Target directory (used for cache validation)
         
         Returns:
             Tuple of (is_found: bool, installed_filename: Optional[str])
@@ -133,7 +137,7 @@ class InstallationStatusManager:
         if '.' in stem:
             stem = '.'.join(stem.split('.')[:-1])
         
-        # Try different matching strategies and find actual file
+        # Try different matching strategies using cached lookups
         candidates = [
             stem.lower().strip(),  # Strategy 1: Exact match
             self.rom_filter._normalize_name(stem)  # Strategy 2: Normalized match
@@ -141,39 +145,54 @@ class InstallationStatusManager:
         
         for candidate in candidates:
             if candidate in existing_roms:
-                # Found a match, now find the actual file in the directory
-                actual_filename = self._find_actual_filename(candidate, target_dir)
-                return True, actual_filename
+                # Use cached lookup instead of directory scanning
+                actual_filename = self._normalized_to_actual.get(candidate)
+                if actual_filename:
+                    return True, actual_filename
         
         # Strategy 3: Check for same ROM different format
         normalized_name = self.rom_filter._normalize_name(stem)
         for existing_rom in existing_roms:
             if self._are_same_rom_different_format(normalized_name, existing_rom):
-                actual_filename = self._find_actual_filename(existing_rom, target_dir)
-                return True, actual_filename
+                actual_filename = self._normalized_to_actual.get(existing_rom)
+                if actual_filename:
+                    return True, actual_filename
         
         return False, None
     
-    def _find_actual_filename(self, normalized_name: str, target_dir: Path) -> Optional[str]:
-        """Find the actual filename in the directory that matches the normalized name"""
+    def _build_filename_cache(self, target_dir: Path):
+        """Build efficient lookup maps by scanning directory once"""
+        self._normalized_to_actual.clear()
+        self._actual_files_cache.clear()
+        
         try:
             rom_extensions = {'.rvz', '.zip', '.7z', '.iso', '.gcm', '.bin', '.cue', '.chd', 
                              '.n64', '.z64', '.v64', '.nes', '.sfc', '.smc', '.gba', '.gbc', '.gb', 
                              '.nds', '.vb', '.pce', '.a26', '.a52', '.a78', '.cdi', '.gdi', '.wux', '.wud'}
             
+            logger.info(f"Building filename cache from {target_dir}")
+            file_count = 0
+            
+            # Single directory scan to build all lookup maps
             for file_path in target_dir.iterdir():
                 if file_path.is_file() and any(file_path.name.lower().endswith(ext) for ext in rom_extensions):
-                    # Get file stem and normalize it
+                    file_count += 1
+                    actual_filename = file_path.name
                     file_stem = file_path.stem
-                    file_normalized = self.rom_filter._normalize_name(file_stem)
                     
-                    if file_normalized == normalized_name:
-                        return file_path.name
+                    # Build normalized name lookup
+                    file_normalized = self.rom_filter._normalize_name(file_stem)
+                    self._normalized_to_actual[file_normalized] = actual_filename
+                    
+                    # Also add case-insensitive direct lookup
+                    self._actual_files_cache[actual_filename.lower()] = actual_filename
+                        
+            logger.info(f"Built filename cache: {file_count} ROM files found")
                         
         except Exception as e:
-            logger.debug(f"Error finding actual filename for {normalized_name}: {e}")
-        
-        return None
+            logger.error(f"Error building filename cache: {e}")
+            self._normalized_to_actual.clear()
+            self._actual_files_cache.clear()
     
     def _precise_rom_match(self, rom_filename: str, existing_roms: set) -> bool:
         """
@@ -269,7 +288,10 @@ class InstallationStatusManager:
                 self.gui._safe_gui_update(lambda: self.gui.update_status("Checking for installed ROMs..."))
                 logger.info("Starting ROM cache population...")
                 
-                # Scan existing ROMs
+                # Build filename lookup cache first (single directory scan)
+                self._build_filename_cache(target_dir)
+                
+                # Scan existing ROMs (this should now be much faster)
                 existing_roms = self.rom_filter.scan_existing_roms(target_dir)
                 
                 # Update cache and UI on main thread (if GUI still active)
@@ -763,8 +785,10 @@ class InstallationStatusManager:
         self.gui.refresh_game_list()
     
     def clear_existing_roms_cache(self):
-        """Clear the existing ROMs cache."""
+        """Clear the existing ROMs cache and filename lookup maps."""
         self.existing_roms.clear()
+        self._normalized_to_actual.clear()
+        self._actual_files_cache.clear()
     
     def cancel_async_updates(self):
         """Cancel any ongoing async update operations."""

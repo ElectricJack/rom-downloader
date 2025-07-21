@@ -47,37 +47,17 @@ class SearchFilterController:
     def apply_filters(self, games: List[Game]) -> List[Game]:
         """Apply current filters to game list.
         
+        NOTE: This method is deprecated. Filtering is now handled consistently
+        in GameTreeManager.apply_filters_to_tree() to avoid multiple code paths.
+        
         Args:
             games: List of games to filter
             
         Returns:
-            List of filtered games
+            All games (filtering is handled in the tree manager)
         """
-        filtered_games = games
-        
-        # Apply tag filters (both checkbox and custom tags)
-        all_active_filters = self.gui_parent.tag_filter_manager.get_active_filters()
-        if all_active_filters:
-            filtered_games = [
-                game for game in filtered_games
-                if self.game_matches_tags(game, all_active_filters)
-            ]
-            logger.debug(f"Tag filtering: {len(games)} -> {len(filtered_games)} games (filters: {all_active_filters})")
-        else:
-            logger.debug(f"No tag filters active, keeping all {len(games)} games")
-        
-        # Apply search filter
-        search_query = self.gui_parent.search_query.get().lower()
-        if search_query:
-            pre_search_count = len(filtered_games)
-            filtered_games = [
-                game for game in filtered_games
-                if search_query in game.display_name.lower()
-            ]
-            logger.debug(f"Search filtering: {pre_search_count} -> {len(filtered_games)} games (query: '{search_query}')")
-        
-        logger.debug(f"Applied filters: {len(games)} -> {len(filtered_games)} games")
-        return filtered_games
+        logger.debug(f"apply_filters called with {len(games)} games - delegating to tree manager")
+        return games
     
     def game_matches_tags(self, game: Game, filter_tags: Set[str] = None) -> bool:
         """Check if game matches current tag filters using advanced filtering logic.

@@ -129,11 +129,11 @@ class GameTreeManager:
         logger.info(f"=== rebuild_game_tree() completed in {total_time:.2f}s ===")
     
     def apply_filters_to_tree(self):
-        """Apply current filters by showing/hiding tree items (fast)"""
-        # Get current filter criteria
-        filtered_games = self.gui.apply_filters(self.gui.current_games)
-        filtered_game_keys = {game.key for game in filtered_games}
-        
+        """Apply current filters by showing/hiding tree items using consistent logic"""
+        platform = self.gui.current_platform.get()
+        if not platform:
+            return
+            
         # Store detached items to avoid memory leaks
         if not hasattr(self, '_detached_items'):
             self._detached_items = []
@@ -147,39 +147,48 @@ class GameTreeManager:
                 pass
         self._detached_items.clear()
         
-        # Get the current platform
-        platform = self.gui.current_platform.get()
+        # Apply the SAME logic every time: check each game and its variants
+        games_with_matching_variants = 0
         
-        # Check if we need to rebuild the entire tree because games are missing
-        current_visible_keys = set()
-        for item_id in self.gui.game_tree.get_children():
-            game_key = self.gui.game_tree.set(item_id, 'game_key')
-            if game_key:
-                current_visible_keys.add(game_key)
-        
-        # If some games from filtered_game_keys are not in the tree, we need to rebuild
-        missing_games = filtered_game_keys - current_visible_keys
-        if missing_games:
-            logger.info(f"Rebuilding tree: {len(missing_games)} games missing from tree")
-            self.rebuild_game_tree(self.gui.current_games, platform)
-            return
-        
-        # Now detach items that don't match filters and rebuild variants for visible games
         for item_id in list(self.gui.game_tree.get_children()):  # Create list copy since we're modifying
             game_key = self.gui.game_tree.set(item_id, 'game_key')
             
-            if game_key not in filtered_game_keys:
-                # Hide this game by detaching it
+            # Find the game object
+            game = None
+            for g in self.gui.current_games:
+                if g.key == game_key:
+                    game = g
+                    break
+            
+            if not game:
+                # Game not found, hide it
                 self.gui.game_tree.detach(item_id)
                 self._detached_items.append(item_id)
+                continue
+            
+            # Check if game has any matching variants using consistent logic
+            has_matching_variants = self._rebuild_game_variants(item_id, game_key, platform)
+            
+            # Apply search filter to game name
+            search_query = self.gui.search_query.get().lower()
+            matches_search = not search_query or search_query in game.display_name.lower()
+            
+            # Show game only if it has matching variants AND matches search
+            if has_matching_variants and matches_search:
+                games_with_matching_variants += 1
             else:
-                # Game is visible - rebuild its variant children with current filters
-                self._rebuild_game_variants(item_id, game_key, platform)
+                # Hide this game
+                self.gui.game_tree.detach(item_id)
+                self._detached_items.append(item_id)
         
-        self.gui.update_status(f"Showing {len(filtered_games)} games")
+        self.gui.update_status(f"Showing {games_with_matching_variants} games")
     
-    def _rebuild_game_variants(self, game_item_id: str, game_key: str, platform: str):
-        """Rebuild variant children for a game with current tag filters"""
+    def _rebuild_game_variants(self, game_item_id: str, game_key: str, platform: str) -> bool:
+        """Rebuild variant children for a game with current tag filters
+        
+        Returns:
+            True if at least one variant matches the current filters, False otherwise
+        """
         try:
             # Find the game object
             game = None
@@ -189,7 +198,7 @@ class GameTreeManager:
                     break
             
             if not game:
-                return
+                return False
             
             # Remove all existing variant children
             for child_id in list(self.gui.game_tree.get_children(game_item_id)):
@@ -247,9 +256,13 @@ class GameTreeManager:
                     values=(variant_queued, variant_installed, rom.size, rom_tags, 'variant', game.key, rom.create_variant_key()),
                     tags=tuple(variant_visual_tags)
                 )
+            
+            # Return whether any variants matched the filters
+            return len(filtered_variants) > 0
         
         except Exception as e:
             logger.error(f"Error rebuilding variants for game {game_key}: {e}")
+            return False
     
     def apply_visual_filters(self, visible_game_keys: Set[str]):
         """Apply visual filtering using tags and styling (backup method)"""

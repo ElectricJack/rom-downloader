@@ -255,13 +255,15 @@ class GameLibraryGUI:
         self.context_menu.add_command(label="Select None", command=self.queue_manager.select_none_games)
         self.context_menu.add_separator()
         self.context_menu.add_command(label="Reveal in File Explorer", command=self.reveal_in_file_explorer)
+        self.context_menu.add_command(label="Uninstall", command=self.uninstall_rom)
         
         # Store menu indices for dynamic enabling/disabling
         self.add_to_queue_index = 0
         self.remove_from_queue_index = 1
         self.add_all_variants_index = 3
         self.remove_all_variants_index = 4
-        self.reveal_in_explorer_index = self.context_menu.index("end")
+        self.reveal_in_explorer_index = self.context_menu.index("end") - 1  # -1 because we added uninstall after
+        self.uninstall_index = self.context_menu.index("end")
     
     def update_context_menu_state(self, item_id: str):
         """Update context menu items based on selected item's installation status"""
@@ -280,6 +282,9 @@ class GameLibraryGUI:
                 item_type, game_key, variant_key
             )
             
+            # Determine if uninstall should be enabled (same logic as reveal - only for installed ROMs)
+            uninstall_enabled = reveal_in_explorer_enabled
+            
             # Update menu item states
             self.context_menu.entryconfig(self.add_to_queue_index, state="normal" if add_to_queue_enabled else "disabled")
             self.context_menu.entryconfig(self.remove_from_queue_index, state="normal" if remove_from_queue_enabled else "disabled")
@@ -294,6 +299,9 @@ class GameLibraryGUI:
                 self.context_menu.entryconfig(self.reveal_in_explorer_index, state="disabled")
                 self._reveal_target_info = None
                 
+            # Uninstall uses the same logic as reveal
+            self.context_menu.entryconfig(self.uninstall_index, state="normal" if uninstall_enabled else "disabled")
+                
         except Exception as e:
             logger.error(f"Error updating context menu state: {e}")
             # Default to disabled on error
@@ -302,6 +310,7 @@ class GameLibraryGUI:
             self.context_menu.entryconfig(self.add_all_variants_index, state="disabled")
             self.context_menu.entryconfig(self.remove_all_variants_index, state="disabled")
             self.context_menu.entryconfig(self.reveal_in_explorer_index, state="disabled")
+            self.context_menu.entryconfig(self.uninstall_index, state="disabled")
             self._reveal_target_info = None
     
     def _determine_queue_actions_state(self, item_type: str, game_key: str, variant_key: str) -> tuple[bool, bool]:
@@ -564,14 +573,92 @@ class GameLibraryGUI:
             else:
                 messagebox.showerror("Error", f"ROM folder does not exist: {target_dir}")
     
-    
-    
-    
-    
-    
-    
-    
-    
+    def uninstall_rom(self):
+        """Uninstall the selected ROM file"""
+        from tkinter import messagebox
+        
+        try:
+            # Use the target variant info determined during context menu update
+            if not hasattr(self, '_reveal_target_info') or not self._reveal_target_info:
+                messagebox.showwarning("No Target", "No installed ROM variant to uninstall.")
+                return
+            
+            target_info = self._reveal_target_info
+            game_key = target_info.get('game_key')
+            variant_key = target_info.get('variant_key')
+            
+            if not game_key or not variant_key:
+                messagebox.showerror("Error", "Could not determine ROM details for uninstall.")
+                return
+            
+            display_name = self.current_platform.get()
+            platform = self._get_platform_key_from_display_name(display_name) if display_name else None
+            
+            if not platform:
+                messagebox.showerror("Error", "Could not determine current platform.")
+                return
+            
+            # Find the game and ROM variant
+            game = None
+            for g in self.current_games:
+                if g.key == game_key:
+                    game = g
+                    break
+            
+            if not game:
+                messagebox.showerror("Error", "Could not find the game.")
+                return
+            
+            # Find the specific ROM variant using variant_key
+            rom = None
+            for rom_variant in game.variants.values():
+                if rom_variant.create_variant_key() == variant_key:
+                    rom = rom_variant
+                    break
+            
+            if not rom:
+                messagebox.showerror("Error", "Could not find the ROM variant.")
+                return
+            
+            # Get the ROM file path
+            rom_file_path = self._get_installed_rom_path(game_key, variant_key, platform)
+            if not rom_file_path or not rom_file_path.exists():
+                messagebox.showerror("Error", "Could not locate the ROM file to uninstall.")
+                return
+            
+            # Confirm uninstall
+            rom_name = rom.clean_name or rom.filename
+            if not messagebox.askyesno("Confirm Uninstall", 
+                                     f"Are you sure you want to uninstall:\n\n{rom_name}\n\nThis action cannot be undone."):
+                return
+            
+            # Perform the uninstall
+            try:
+                rom_file_path.unlink()  # Delete the file
+                logger.info(f"Successfully uninstalled ROM: {rom_file_path}")
+                
+                # Update ROM state to reflect uninstalled status
+                rom.set_installed(False, None)
+                
+                # Remove from existing ROMs cache
+                if hasattr(self, 'installation_status_manager'):
+                    self.installation_status_manager.clear_existing_roms_cache()
+                
+                # Update the tree display for this game
+                self.update_game_tree_item(game_key, platform)
+                
+                # Show success message
+                messagebox.showinfo("Success", f"Successfully uninstalled {rom_name}")
+                
+                logger.info(f"ROM uninstalled successfully: {rom_name}")
+                
+            except Exception as delete_error:
+                logger.error(f"Error deleting ROM file: {delete_error}")
+                messagebox.showerror("Error", f"Failed to delete ROM file: {delete_error}")
+            
+        except Exception as e:
+            logger.error(f"Error uninstalling ROM: {e}")
+            messagebox.showerror("Error", f"An error occurred while trying to uninstall the ROM: {e}")
     
     def update_game_tree_item(self, game_key: str, platform: str):
         """Update a specific game's tree items without full refresh"""

@@ -257,6 +257,10 @@ class GameLibraryGUI:
         self.context_menu.add_command(label="Reveal in File Explorer", command=self.reveal_in_file_explorer)
         
         # Store menu indices for dynamic enabling/disabling
+        self.add_to_queue_index = 0
+        self.remove_from_queue_index = 1
+        self.add_all_variants_index = 3
+        self.remove_all_variants_index = 4
         self.reveal_in_explorer_index = self.context_menu.index("end")
     
     def update_context_menu_state(self, item_id: str):
@@ -265,11 +269,23 @@ class GameLibraryGUI:
             # Get item details
             item_details = self.tree_event_handler.get_item_details(item_id)
             item_type = item_details.get('item_type')
+            game_key = item_details.get('game_key')
+            variant_key = item_details.get('variant_key')
             
             # Determine if reveal should be enabled and get the target variant
             reveal_in_explorer_enabled, target_variant_info = self._determine_reveal_target(item_id, item_type, item_details)
             
-            # Update menu item state
+            # Determine if queue actions should be enabled
+            add_to_queue_enabled, remove_from_queue_enabled = self._determine_queue_actions_state(
+                item_type, game_key, variant_key
+            )
+            
+            # Update menu item states
+            self.context_menu.entryconfig(self.add_to_queue_index, state="normal" if add_to_queue_enabled else "disabled")
+            self.context_menu.entryconfig(self.remove_from_queue_index, state="normal" if remove_from_queue_enabled else "disabled")
+            self.context_menu.entryconfig(self.add_all_variants_index, state="normal" if add_to_queue_enabled else "disabled")
+            self.context_menu.entryconfig(self.remove_all_variants_index, state="normal" if remove_from_queue_enabled else "disabled")
+            
             if reveal_in_explorer_enabled:
                 self.context_menu.entryconfig(self.reveal_in_explorer_index, state="normal")
                 # Store the target variant info for use in reveal_in_file_explorer
@@ -281,8 +297,69 @@ class GameLibraryGUI:
         except Exception as e:
             logger.error(f"Error updating context menu state: {e}")
             # Default to disabled on error
+            self.context_menu.entryconfig(self.add_to_queue_index, state="disabled")
+            self.context_menu.entryconfig(self.remove_from_queue_index, state="disabled")
+            self.context_menu.entryconfig(self.add_all_variants_index, state="disabled")
+            self.context_menu.entryconfig(self.remove_all_variants_index, state="disabled")
             self.context_menu.entryconfig(self.reveal_in_explorer_index, state="disabled")
             self._reveal_target_info = None
+    
+    def _determine_queue_actions_state(self, item_type: str, game_key: str, variant_key: str) -> tuple[bool, bool]:
+        """Determine if queue actions should be enabled for the selected item
+        
+        Returns:
+            tuple: (add_to_queue_enabled, remove_from_queue_enabled)
+        """
+        try:
+            platform = self.get_current_platform_key()
+            if not platform or not game_key:
+                return False, False
+            
+            # Find the game
+            game = None
+            for g in self.current_games:
+                if g.key == game_key:
+                    game = g
+                    break
+            
+            if not game:
+                return False, False
+            
+            # Check if game is currently queued
+            is_queued = self.queue_manager.is_game_queued(game_key, platform)
+            
+            if item_type == 'variant' and variant_key:
+                # For specific variant - check if this variant can be queued/dequeued
+                rom_variant = game.variants.get(variant_key)
+                if not rom_variant:
+                    return False, False
+                
+                # Cannot queue installed or installed-only ROMs
+                if rom_variant.is_installed() is True or rom_variant.is_installed_only:
+                    return False, is_queued  # Can only remove if queued
+                
+                # Can add if not queued, can remove if queued
+                return not is_queued, is_queued
+            
+            else:
+                # For game level - check if any variants can be queued
+                variants = game.get_variants_for_platform(platform)
+                queueable_variants = [
+                    rom for rom in variants 
+                    if not rom.is_installed_only and rom.is_installed() is not True
+                ]
+                
+                # Can add to queue if there are queueable variants and not already queued
+                can_add = len(queueable_variants) > 0 and not is_queued
+                
+                # Can remove if queued
+                can_remove = is_queued
+                
+                return can_add, can_remove
+                
+        except Exception as e:
+            logger.error(f"Error determining queue actions state: {e}")
+            return False, False
     
     def _determine_reveal_target(self, item_id: str, item_type: str, item_details: dict) -> tuple[bool, Optional[dict]]:
         """Determine if reveal should be enabled and which variant to target
@@ -725,6 +802,12 @@ class GameLibraryGUI:
         self.progress_bar = ttk.Progressbar(download_progress_frame, mode='determinate')
         self.progress_bar.pack(fill=tk.X, pady=(2, 0))
         
+
+        # Download status label
+        self.status_label = ttk.Label(bottom_frame, text="Ready")
+        self.status_label.pack(anchor=tk.W, pady=(5, 0))
+
+
         # Copy progress section  
         copy_progress_frame = ttk.Frame(bottom_frame)
         copy_progress_frame.pack(fill=tk.X, pady=(0, 5))
@@ -739,9 +822,7 @@ class GameLibraryGUI:
         self.copy_status_label = ttk.Label(copy_progress_frame, text="")
         self.copy_status_label.pack(anchor=tk.W, pady=(2, 0))
         
-        # Download status label
-        self.status_label = ttk.Label(bottom_frame, text="Ready")
-        self.status_label.pack(anchor=tk.W, pady=(5, 0))
+
     
     def setup_menu_bar(self):
         """Set up the menu bar"""

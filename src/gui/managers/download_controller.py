@@ -265,11 +265,17 @@ class DownloadController:
             
             logger.info("Completed ROM status updates applied")
         
-        # Show completion dialog after all status updates
+        # Clean up queue by removing newly installed ROMs
+        platform = self.gui.get_current_platform_key()
+        if platform:
+            removed_count = self.gui.queue_manager.remove_installed_roms_from_queue(platform)
+            if removed_count > 0:
+                logger.info(f"Automatically removed {removed_count} installed ROMs from queue")
+        
+        # Show completion dialog after all status updates and queue cleanup
         messagebox.showinfo("Installation Complete", f"Successfully installed {self.installation_count} out of {self.total_queued_count} ROMs")
         
         # Refresh installed ROM cache for any missed items
-        platform = self.gui.get_current_platform_key()
         if platform:
             self.gui.installation_status_manager.check_installed_roms()
     

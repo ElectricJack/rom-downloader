@@ -483,10 +483,8 @@ class InstallationStatusManager:
                 # Game has ONLY installed-only ROMs and no online variants at all
                 new_tags.append('installed_only')
             elif has_installed:
-                # Game has installed ROMs and has online variants available
+                # Game has installed ROMs - never show queued if any variants are installed
                 new_tags.append('installed')
-                if 'queued' in current_tags:
-                    new_tags.append('queued_installed')
             
             return {
                 'item_id': item_id,
@@ -530,10 +528,8 @@ class InstallationStatusManager:
                             # Installed-only ROMs cannot be queued
                             new_tags.append('installed_only')
                         else:
-                            # Regular installed ROMs can be queued
+                            # Regular installed ROMs - never show queued if installed
                             new_tags.append('installed')
-                            if 'queued' in current_tags:
-                                new_tags.append('queued_installed')
                     
                     return {
                         'item_id': item_id,
@@ -790,10 +786,8 @@ class InstallationStatusManager:
                 # Game has ONLY installed-only ROMs and no online variants at all
                 current_tags.append('installed_only')
             elif installed_variants:
-                # Game has installed ROMs and has online variants available
+                # Game has installed ROMs - never show queued if any variants are installed
                 current_tags.append('installed')
-                if "queued" in current_tags:
-                    current_tags.append('queued_installed')
             
             self.game_tree.item(item_id, values=tuple(current_values), tags=tuple(current_tags))
         except Exception as e:
@@ -834,10 +828,8 @@ class InstallationStatusManager:
                     # Installed-only ROMs cannot be queued
                     current_tags.append('installed_only')
                 else:
-                    # Regular installed ROMs can be queued
+                    # Regular installed ROMs - never show queued if installed
                     current_tags.append('installed')
-                    if "queued" in current_tags:
-                        current_tags.append('queued_installed')
             
             self.game_tree.item(item_id, values=tuple(current_values), tags=tuple(current_tags))
         except Exception as e:
@@ -846,6 +838,14 @@ class InstallationStatusManager:
     def _check_installed_complete(self, count: int):
         """Handle installed ROM check completion."""
         self.gui.update_status(f"Scan complete. Found {count} installed ROMs")
+        
+        # Clean up queue by removing installed ROMs
+        platform = self.gui.get_current_platform_key()
+        if platform:
+            removed_count = self.gui.queue_manager.remove_installed_roms_from_queue(platform)
+            if removed_count > 0:
+                logger.info(f"Automatically removed {removed_count} installed ROMs from queue after scan")
+        
         self.gui.refresh_game_list()
     
     def clear_existing_roms_cache(self):

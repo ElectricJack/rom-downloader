@@ -117,10 +117,11 @@ class GameTreeManager:
             visual_tags.append('installed_only')
             logger.debug(f"Applied installed_only tag to game {game.display_name} (no online variants)")
         elif installed_variants:
-            # Game has installed ROMs and has online variants available
+            # Game has installed ROMs - never show queued if any variants are installed
             visual_tags.append('installed')
-            if selection:
-                visual_tags.append('queued_installed')
+            # Remove queued tag if present since we prioritize installed status
+            if 'queued' in visual_tags:
+                visual_tags.remove('queued')
         
         # Insert game item
         game_item = self.gui.game_tree.insert(
@@ -159,12 +160,10 @@ class GameTreeManager:
                     variant_visual_tags.append('installed_only')
                     logger.debug(f"    Applied installed_only tag to variant {rom.filename}")
                 else:
-                    # Regular installed ROMs can be queued
+                    # Regular installed ROMs - never show queued if installed
                     variant_visual_tags.append('installed')
-                    if variant_queued:
-                        variant_visual_tags.append('queued_installed')
-            elif variant_queued:
-                # Only add queued if not installed-only
+            elif variant_queued and not rom.is_installed_only:
+                # Only add queued if not installed and not installed-only
                 variant_visual_tags.append('queued')
             
             self.gui.game_tree.insert(
@@ -276,10 +275,11 @@ class GameTreeManager:
             # Game has ONLY installed-only ROMs and no online variants at all
             visual_tags.append('installed_only')
         elif installed_variants:
-            # Game has installed ROMs and has online variants available
+            # Game has installed ROMs - never show queued if any variants are installed
             visual_tags.append('installed')
-            if selection:
-                visual_tags.append('queued_installed')
+            # Remove queued tag if present since we prioritize installed status
+            if 'queued' in visual_tags:
+                visual_tags.remove('queued')
         
         # Insert game item
         game_item = self.gui.game_tree.insert(
@@ -318,12 +318,10 @@ class GameTreeManager:
                     variant_visual_tags.append('installed_only')
                     logger.debug(f"    Applied installed_only tag to variant {rom.filename}")
                 else:
-                    # Regular installed ROMs can be queued
+                    # Regular installed ROMs - never show queued if installed
                     variant_visual_tags.append('installed')
-                    if variant_queued:
-                        variant_visual_tags.append('queued_installed')
-            elif variant_queued:
-                # Only add queued if not installed-only
+            elif variant_queued and not rom.is_installed_only:
+                # Only add queued if not installed and not installed-only
                 variant_visual_tags.append('queued')
             
             self.gui.game_tree.insert(

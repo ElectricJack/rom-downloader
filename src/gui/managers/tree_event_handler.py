@@ -53,7 +53,9 @@ class TreeEventHandler:
             return
         
         if item_type == 'game':
-            self.gui.queue_manager.toggle_game_queue_status(game_key, platform)
+            # Check if game has any queueable variants before allowing toggle
+            if self._can_game_be_queued(game_key, platform):
+                self.gui.queue_manager.toggle_game_queue_status(game_key, platform)
         elif item_type == 'variant':
             # Variants cannot be queued individually - ignore click
             return
@@ -168,3 +170,36 @@ class TreeEventHandler:
         except Exception as e:
             logger.error(f"Error getting item details for {item_id}: {e}")
             return {}
+    
+    def _can_game_be_queued(self, game_key: str, platform: str) -> bool:
+        """Check if a game can be queued (has downloadable variants)
+        
+        Args:
+            game_key: The game key to check
+            platform: The platform name
+            
+        Returns:
+            True if game can be queued, False otherwise
+        """
+        # Find the game
+        game = None
+        for g in self.gui.current_games:
+            if g.key == game_key:
+                game = g
+                break
+        
+        if not game:
+            return False
+        
+        # Check if game is already queued - if so, allow toggle to remove it
+        if self.gui.queue_manager.is_game_queued(game_key, platform):
+            return True
+        
+        # Check if game has any downloadable variants (not installed and not installed-only)
+        variants = game.get_variants_for_platform(platform)
+        downloadable_variants = [
+            rom for rom in variants 
+            if not rom.is_installed_only and rom.is_installed() is not True
+        ]
+        
+        return len(downloadable_variants) > 0

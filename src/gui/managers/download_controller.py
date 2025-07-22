@@ -219,20 +219,20 @@ class DownloadController:
             self.update_copy_status(f"Installed: {rom.clean_name}")
             self.installation_count += 1
             
-            # Remove ROM from selection queue after successful installation
+            # Track successful installations but don't update display yet
+            # We'll update everything at once when all installations complete
             platform = self.gui.get_current_platform_key()
             if platform:
-                # Find the game key for this ROM
-                for game in self.gui.current_games:
-                    for variant_key, variant_rom in game.variants.items():
-                        if variant_rom.filename == rom.filename:
-                            # Remove from queue
-                            self.state_manager.remove_selection(game.key, platform)
-                            logger.info(f"Removed {game.key} from queue after successful installation")
-                            break
-            
-            # Refresh display to update installed status and queue status after copy completes
-            self.gui.refresh_game_list()
+                # Store the completed ROM for batch processing later
+                if not hasattr(self, '_completed_roms'):
+                    self._completed_roms = []
+                
+                self._completed_roms.append({
+                    'rom': rom,
+                    'platform': platform
+                })
+                
+                logger.info(f"ROM {rom.filename} copy completed, will update status when all installations finish")
         else:
             self.copy_progress_bar['value'] = 0  # Reset on failure
             self.update_copy_status(f"Installation failed: {rom.clean_name} - {result.error_message}")
@@ -245,12 +245,71 @@ class DownloadController:
             self.copy_progress_bar['value'] = 0
         self.update_status(f"Installation complete: {self.installation_count}/{self.total_queued_count} successful")
         self.update_copy_status("")  # Clear copy status
+        
+        # Process batched completed ROMs and update their display status
+        if hasattr(self, '_completed_roms') and self._completed_roms:
+            logger.info(f"Processing {len(self._completed_roms)} completed ROMs for status updates")
+            
+            for completed_rom_data in self._completed_roms:
+                rom = completed_rom_data['rom']
+                platform = completed_rom_data['platform']
+                
+                # Mark ROM as installed in cache
+                rom.set_installed(True, "installed")
+                
+                # Update the tree display for this specific ROM
+                self._update_rom_tree_status(rom, platform)
+            
+            # Clear the completed ROMs list
+            self._completed_roms.clear()
+            
+            logger.info("Completed ROM status updates applied")
+        
+        # Show completion dialog after all status updates
         messagebox.showinfo("Installation Complete", f"Successfully installed {self.installation_count} out of {self.total_queued_count} ROMs")
         
-        # Refresh installed ROM cache
+        # Refresh installed ROM cache for any missed items
         platform = self.gui.get_current_platform_key()
         if platform:
             self.gui.installation_status_manager.check_installed_roms()
+    
+    def _update_rom_tree_status(self, rom: ROM, platform: str):
+        """Update tree display status for a specific ROM that was just installed"""
+        try:
+            # Find the game that contains this ROM
+            game = None
+            for g in self.gui.current_games:
+                for variant in g.get_variants_for_platform(platform):
+                    if variant.filename == rom.filename and variant.url == rom.url:
+                        game = g
+                        break
+                if game:
+                    break
+            
+            if not game:
+                logger.warning(f"Could not find game for ROM {rom.filename}")
+                return
+            
+            # Update the tree items for this game and its variants
+            for item_id in self.gui.game_tree.get_children():
+                try:
+                    game_key = self.gui.game_tree.set(item_id, 'game_key')
+                    if game_key == game.key:
+                        # Update the game item
+                        self.gui.installation_status_manager._update_game_item_installation_status(item_id, game, platform)
+                        
+                        # Update the specific ROM variant item
+                        for child_item in self.gui.game_tree.get_children(item_id):
+                            variant_key = self.gui.game_tree.set(child_item, 'variant_key')
+                            if variant_key == rom.create_variant_key():
+                                self.gui.installation_status_manager._update_variant_item_installation_status(child_item, game, platform)
+                                break
+                        break
+                except Exception as e:
+                    logger.error(f"Error updating tree item {item_id}: {e}")
+                    
+        except Exception as e:
+            logger.error(f"Error updating ROM tree status for {rom.filename}: {e}")
     
     def _installation_timeout_warning(self):
         """Handle installation timeout warning"""

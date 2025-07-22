@@ -66,11 +66,20 @@ class GameLibraryProcessor:
         
         logger.info(f"Processed into {len(library.games)} unique games with {sum(len(g.variants) for g in library.games.values())} variants")
         
+        # Sort the games alphabetically by display name
+        sorted_games = dict(sorted(library.games.items(), key=lambda item: item[1].display_name.lower()))
+        library.games = sorted_games
+        logger.debug(f"Sorted {len(library.games)} games alphabetically")
+        
         return library
     
     def _create_rom_from_info(self, rom_info: RomInfo, platform: str) -> ROM:
         """Create ROM object from RomInfo with tag extraction"""
         tags, normalized_name = self.extract_tags_and_normalize(rom_info.name)
+        
+        is_installed_only = getattr(rom_info, 'is_installed_only', False)
+        if is_installed_only:
+            logger.info(f"Creating installed-only ROM: {rom_info.name}")
         
         return ROM(
             filename=rom_info.name,
@@ -79,7 +88,8 @@ class GameLibraryProcessor:
             file_type=rom_info.file_type,
             tags=tags,
             platform=platform,
-            clean_name=rom_info.clean_name
+            clean_name=rom_info.clean_name,
+            is_installed_only=is_installed_only
         )
     
     def extract_tags_and_normalize(self, filename: str) -> Tuple[Set[str], str]:
@@ -356,3 +366,48 @@ class GameLibraryProcessor:
                     preferred.append(tag)
         
         return preferred[:10]  # Limit to top 10
+    
+    def merge_installed_only_roms(self, library: GameLibrary, installed_only_roms: List[RomInfo], platform: str) -> GameLibrary:
+        """Merge installed-only ROMs into the existing game library"""
+        logger.info(f"Merging {len(installed_only_roms)} installed-only ROMs for platform {platform}")
+        
+        merged_count = 0
+        for rom_info in installed_only_roms:
+            # Convert RomInfo to ROM
+            rom = self._create_rom_from_info(rom_info, platform)
+            # Mark as installed since we found it on disk
+            rom.set_installed(True, rom_info.name)
+            
+            # Create game key and find/create game
+            game_key = self.create_game_key(rom.filename)
+            
+            if game_key not in library.games:
+                # Create new game for installed-only ROM
+                display_name = self._create_display_name(rom.filename)
+                game = Game(
+                    key=game_key,
+                    display_name=display_name,
+                    platforms={platform}
+                )
+                library.add_game(game)
+                logger.debug(f"Created new game for installed-only ROM: {display_name}")
+            
+            # Add ROM variant to game
+            game = library.games[game_key]
+            game.add_variant(rom)
+            
+            # Update tag registry after adding variant
+            if platform not in library.tag_registry:
+                library.tag_registry[platform] = set()
+            library.tag_registry[platform].update(rom.tags)
+            
+            merged_count += 1
+        
+        logger.info(f"Successfully merged {merged_count} installed-only ROMs into library")
+        
+        # Sort the games alphabetically by display name after merging
+        sorted_games = dict(sorted(library.games.items(), key=lambda item: item[1].display_name.lower()))
+        library.games = sorted_games
+        logger.debug(f"Sorted {len(library.games)} games alphabetically after merging installed-only ROMs")
+        
+        return library

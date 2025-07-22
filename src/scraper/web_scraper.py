@@ -23,6 +23,7 @@ class RomInfo:
         self.is_folder = is_folder
         self.region = self._extract_region()
         self.clean_name = self._clean_name()
+        self.is_installed_only = False  # Flag to mark ROMs that are only available locally
     
     def _extract_region(self) -> str:
         """Extract region information from the ROM name."""

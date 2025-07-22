@@ -95,14 +95,32 @@ class GameTreeManager:
         # Show all variants count
         variant_count_text = f"{len(variants)} variants"
         
-        # Determine visual styling
+        # Determine visual styling based on variant types
         visual_tags = ['game']
+        # Check all variants of the game, not just installed ones
+        has_any_online_variants = any(not rom.is_installed_only for rom in variants)
+        has_online_installed = any(rom.is_installed() is True and not rom.is_installed_only for rom in installed_variants)
+        has_installed_only = any(rom.is_installed() is True and rom.is_installed_only for rom in installed_variants)
+        
+        # Debug logging
+        if installed_variants:
+            logger.debug(f"Game {game.display_name}: has_any_online_variants={has_any_online_variants}, has_online_installed={has_online_installed}, has_installed_only={has_installed_only}")
+            logger.debug(f"  Total variants: {len(variants)}, Installed variants: {len(installed_variants)}")
+            for rom in installed_variants:
+                logger.debug(f"  ROM {rom.filename}: is_installed_only={rom.is_installed_only}")
+        
         if selection:
             visual_tags.append('queued')
-        if installed_variants:
+        
+        if has_installed_only and not has_any_online_variants:
+            # Game has ONLY installed-only ROMs and no online variants at all
+            visual_tags.append('installed_only')
+            logger.debug(f"Applied installed_only tag to game {game.display_name} (no online variants)")
+        elif installed_variants:
+            # Game has installed ROMs and has online variants available
             visual_tags.append('installed')
-        if selection and installed_variants:
-            visual_tags.append('queued_installed')
+            if selection:
+                visual_tags.append('queued_installed')
         
         # Insert game item
         game_item = self.gui.game_tree.insert(
@@ -126,20 +144,34 @@ class GameTreeManager:
             # Format tags for this variant
             rom_tags = ", ".join(sorted(rom.tags)) if rom.tags else ""
             
+            # Add visual indicator for installed-only ROMs
+            size_display = rom.size
+            if rom.is_installed_only:
+                size_display = f"{rom.size} (Local only)"
+            
             # Determine visual styling for variant
             variant_visual_tags = ['variant']
-            if variant_queued:
-                variant_visual_tags.append('queued')
+            
             if rom.is_installed() is True:
-                variant_visual_tags.append('installed')
-            if variant_queued and rom.is_installed() is True:
-                variant_visual_tags.append('queued_installed')
+                logger.debug(f"  Variant {rom.filename}: is_installed_only={rom.is_installed_only}")
+                if rom.is_installed_only:
+                    # Installed-only ROMs cannot be queued
+                    variant_visual_tags.append('installed_only')
+                    logger.debug(f"    Applied installed_only tag to variant {rom.filename}")
+                else:
+                    # Regular installed ROMs can be queued
+                    variant_visual_tags.append('installed')
+                    if variant_queued:
+                        variant_visual_tags.append('queued_installed')
+            elif variant_queued:
+                # Only add queued if not installed-only
+                variant_visual_tags.append('queued')
             
             self.gui.game_tree.insert(
                 game_item,
                 'end',
                 text=rom.filename,
-                values=(variant_queued, variant_installed, rom.size, rom_tags, 'variant', game.key, rom.create_variant_key()),
+                values=(variant_queued, variant_installed, size_display, rom_tags, 'variant', game.key, rom.create_variant_key()),
                 tags=tuple(variant_visual_tags)
             )
     
@@ -230,14 +262,24 @@ class GameTreeManager:
         # Show filtered vs total variant count
         variant_count_text = f"{len(filtered_variants)}/{len(all_variants)} variants" if len(filtered_variants) != len(all_variants) else f"{len(all_variants)} variants"
         
-        # Determine visual styling
+        # Determine visual styling based on variant types
         visual_tags = ['game']
+        # Check all variants of the game, not just installed ones
+        has_any_online_variants = any(not rom.is_installed_only for rom in all_variants)
+        has_online_installed = any(rom.is_installed() is True and not rom.is_installed_only for rom in installed_variants)
+        has_installed_only = any(rom.is_installed() is True and rom.is_installed_only for rom in installed_variants)
+        
         if selection:
             visual_tags.append('queued')
-        if installed_variants:
+        
+        if has_installed_only and not has_any_online_variants:
+            # Game has ONLY installed-only ROMs and no online variants at all
+            visual_tags.append('installed_only')
+        elif installed_variants:
+            # Game has installed ROMs and has online variants available
             visual_tags.append('installed')
-        if selection and installed_variants:
-            visual_tags.append('queued_installed')
+            if selection:
+                visual_tags.append('queued_installed')
         
         # Insert game item
         game_item = self.gui.game_tree.insert(
@@ -261,20 +303,34 @@ class GameTreeManager:
             # Format tags for this variant
             rom_tags = ", ".join(sorted(rom.tags)) if rom.tags else ""
             
+            # Add visual indicator for installed-only ROMs
+            size_display = rom.size
+            if rom.is_installed_only:
+                size_display = f"{rom.size} (Local only)"
+            
             # Determine visual styling for variant
             variant_visual_tags = ['variant']
-            if variant_queued:
-                variant_visual_tags.append('queued')
+            
             if rom.is_installed() is True:
-                variant_visual_tags.append('installed')
-            if variant_queued and rom.is_installed() is True:
-                variant_visual_tags.append('queued_installed')
+                logger.debug(f"  Variant {rom.filename}: is_installed_only={rom.is_installed_only}")
+                if rom.is_installed_only:
+                    # Installed-only ROMs cannot be queued
+                    variant_visual_tags.append('installed_only')
+                    logger.debug(f"    Applied installed_only tag to variant {rom.filename}")
+                else:
+                    # Regular installed ROMs can be queued
+                    variant_visual_tags.append('installed')
+                    if variant_queued:
+                        variant_visual_tags.append('queued_installed')
+            elif variant_queued:
+                # Only add queued if not installed-only
+                variant_visual_tags.append('queued')
             
             self.gui.game_tree.insert(
                 game_item,
                 'end',
                 text=rom.filename,
-                values=(variant_queued, variant_installed, rom.size, rom_tags, 'variant', game.key, rom.create_variant_key()),
+                values=(variant_queued, variant_installed, size_display, rom_tags, 'variant', game.key, rom.create_variant_key()),
                 tags=tuple(variant_visual_tags)
             )
     

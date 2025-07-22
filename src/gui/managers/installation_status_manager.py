@@ -468,13 +468,22 @@ class InstallationStatusManager:
             
             # Check if any of the visible/filtered variants are installed
             has_installed = any(rom.is_installed() is True for rom in filtered_variants)
+            # Check all variants of the game, not just filtered/installed ones
+            all_variants = game.get_variants_for_platform(platform)
+            has_any_online_variants = any(not rom.is_installed_only for rom in all_variants)
+            has_online_installed = any(rom.is_installed() is True and not rom.is_installed_only for rom in filtered_variants)
+            has_installed_only = any(rom.is_installed() is True and rom.is_installed_only for rom in filtered_variants)
             installed_text = "✓" if has_installed else ""
             
-            # Determine visual tags
+            # Determine visual tags - preserve installed_only styling
             current_tags = list(self.game_tree.item(item_id, 'tags'))
-            new_tags = [tag for tag in current_tags if tag not in ['installed', 'queued_installed']]
+            new_tags = [tag for tag in current_tags if tag not in ['installed', 'installed_only', 'queued_installed']]
             
-            if has_installed:
+            if has_installed_only and not has_any_online_variants:
+                # Game has ONLY installed-only ROMs and no online variants at all
+                new_tags.append('installed_only')
+            elif has_installed:
+                # Game has installed ROMs and has online variants available
                 new_tags.append('installed')
                 if 'queued' in current_tags:
                     new_tags.append('queued_installed')
@@ -512,14 +521,19 @@ class InstallationStatusManager:
                     
                     installed_text = "✓" if is_installed else ""
                     
-                    # Determine visual tags
+                    # Determine visual tags - preserve installed_only styling
                     current_tags = list(self.game_tree.item(item_id, 'tags'))
-                    new_tags = [tag for tag in current_tags if tag not in ['installed', 'queued_installed']]
+                    new_tags = [tag for tag in current_tags if tag not in ['installed', 'installed_only', 'queued_installed']]
                     
                     if is_installed:
-                        new_tags.append('installed')
-                        if 'queued' in current_tags:
-                            new_tags.append('queued_installed')
+                        if rom.is_installed_only:
+                            # Installed-only ROMs cannot be queued
+                            new_tags.append('installed_only')
+                        else:
+                            # Regular installed ROMs can be queued
+                            new_tags.append('installed')
+                            if 'queued' in current_tags:
+                                new_tags.append('queued_installed')
                     
                     return {
                         'item_id': item_id,
@@ -618,11 +632,20 @@ class InstallationStatusManager:
             
             installed_text = "✓" if installed_variants else ""
             
-            # Determine visual tags
+            # Determine visual tags - preserve installed_only styling
             current_tags = list(self.game_tree.item(item_id, 'tags'))
-            new_tags = [tag for tag in current_tags if tag not in ['installed', 'queued_installed']]
+            # Check all variants of the game, not just installed ones
+            all_variants = game.get_variants_for_platform(platform)
+            has_any_online_variants = any(not rom.is_installed_only for rom in all_variants)
+            has_online_installed = any(rom.is_installed() is True and not rom.is_installed_only for rom in installed_variants)
+            has_installed_only = any(rom.is_installed() is True and rom.is_installed_only for rom in installed_variants)
+            new_tags = [tag for tag in current_tags if tag not in ['installed', 'installed_only', 'queued_installed']]
             
-            if installed_variants:
+            if has_installed_only and not has_any_online_variants:
+                # Game has ONLY installed-only ROMs and no online variants at all
+                new_tags.append('installed_only')
+            elif installed_variants:
+                # Game has installed ROMs and has online variants available
                 new_tags.append('installed')
                 if 'queued' in current_tags:
                     new_tags.append('queued_installed')
@@ -662,14 +685,19 @@ class InstallationStatusManager:
             is_installed = self.is_rom_installed(rom_variant, platform)
             installed_text = "✓" if is_installed else ""
             
-            # Determine visual tags
+            # Determine visual tags - preserve installed_only styling
             current_tags = list(self.game_tree.item(item_id, 'tags'))
-            new_tags = [tag for tag in current_tags if tag not in ['installed', 'queued_installed']]
+            new_tags = [tag for tag in current_tags if tag not in ['installed', 'installed_only', 'queued_installed']]
             
             if is_installed:
-                new_tags.append('installed')
-                if 'queued' in current_tags:
-                    new_tags.append('queued_installed')
+                if rom_variant.is_installed_only:
+                    # Installed-only ROMs cannot be queued
+                    new_tags.append('installed_only')
+                else:
+                    # Regular installed ROMs can be queued
+                    new_tags.append('installed')
+                    if 'queued' in current_tags:
+                        new_tags.append('queued_installed')
             
             return {
                 'item_id': item_id,
@@ -747,22 +775,25 @@ class InstallationStatusManager:
             current_values = list(self.game_tree.item(item_id, 'values'))
             current_values[1] = "✓" if installed_variants else ""  # Installed column
             
-            # Update visual tags
+            # Update visual tags - preserve installed_only styling
             current_tags = list(self.game_tree.item(item_id, 'tags'))
-            if installed_variants:
-                if 'installed' not in current_tags:
-                    current_tags.append('installed')
-            else:
-                if 'installed' in current_tags:
-                    current_tags.remove('installed')
+            # Check all variants of the game, not just installed ones
+            all_variants = game.get_variants_for_platform(platform)
+            has_any_online_variants = any(not rom.is_installed_only for rom in all_variants)
+            has_online_installed = any(rom.is_installed() is True and not rom.is_installed_only for rom in installed_variants)
+            has_installed_only = any(rom.is_installed() is True and rom.is_installed_only for rom in installed_variants)
             
-            # Check for queued_installed combination
-            if "queued" in current_tags and installed_variants:
-                if 'queued_installed' not in current_tags:
+            # Remove old installation tags
+            current_tags = [tag for tag in current_tags if tag not in ['installed', 'installed_only', 'queued_installed']]
+            
+            if has_installed_only and not has_any_online_variants:
+                # Game has ONLY installed-only ROMs and no online variants at all
+                current_tags.append('installed_only')
+            elif installed_variants:
+                # Game has installed ROMs and has online variants available
+                current_tags.append('installed')
+                if "queued" in current_tags:
                     current_tags.append('queued_installed')
-            else:
-                if 'queued_installed' in current_tags:
-                    current_tags.remove('queued_installed')
             
             self.game_tree.item(item_id, values=tuple(current_values), tags=tuple(current_tags))
         except Exception as e:
@@ -793,22 +824,20 @@ class InstallationStatusManager:
             current_values = list(self.game_tree.item(item_id, 'values'))
             current_values[1] = "✓" if is_installed else ""  # Installed column
             
-            # Update visual tags
+            # Update visual tags - preserve installed_only styling
             current_tags = list(self.game_tree.item(item_id, 'tags'))
-            if is_installed:
-                if 'installed' not in current_tags:
-                    current_tags.append('installed')
-            else:
-                if 'installed' in current_tags:
-                    current_tags.remove('installed')
+            # Remove old installation tags
+            current_tags = [tag for tag in current_tags if tag not in ['installed', 'installed_only', 'queued_installed']]
             
-            # Check for queued_installed combination
-            if "queued" in current_tags and is_installed:
-                if 'queued_installed' not in current_tags:
-                    current_tags.append('queued_installed')
-            else:
-                if 'queued_installed' in current_tags:
-                    current_tags.remove('queued_installed')
+            if is_installed:
+                if rom_variant.is_installed_only:
+                    # Installed-only ROMs cannot be queued
+                    current_tags.append('installed_only')
+                else:
+                    # Regular installed ROMs can be queued
+                    current_tags.append('installed')
+                    if "queued" in current_tags:
+                        current_tags.append('queued_installed')
             
             self.game_tree.item(item_id, values=tuple(current_values), tags=tuple(current_tags))
         except Exception as e:
@@ -816,7 +845,7 @@ class InstallationStatusManager:
     
     def _check_installed_complete(self, count: int):
         """Handle installed ROM check completion."""
-        self.gui.update_status(f"Found {count} installed ROMs")
+        self.gui.update_status(f"Scan complete. Found {count} installed ROMs")
         self.gui.refresh_game_list()
     
     def clear_existing_roms_cache(self):

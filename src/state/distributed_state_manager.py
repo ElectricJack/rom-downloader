@@ -384,7 +384,8 @@ class DistributedStateManager:
         logger.info(f"get_games_for_platform({platform}) took {total_time:.2f}s, returning {result_count} games")
         
         if self.platform_library:
-            return list(self.platform_library.games.values())
+            # Return games sorted alphabetically by display name
+            return sorted(self.platform_library.games.values(), key=lambda game: game.display_name.lower())
         return []
     
     def get_platform_tags(self, platform: str) -> Set[str]:

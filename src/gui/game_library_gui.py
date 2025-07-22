@@ -176,8 +176,6 @@ class GameLibraryGUI:
         self.scan_button = ttk.Button(top_frame, text="Scan ROMs", command=self.scan_roms)
         self.scan_button.pack(side=tk.LEFT, padx=(0, 5))
         
-        self.check_installed_button = ttk.Button(top_frame, text="Check Installed", command=self.check_installed_for_current_platform)
-        self.check_installed_button.pack(side=tk.LEFT, padx=(0, 5))
         
         self.install_queue_button = ttk.Button(top_frame, text="Install Games in Queue", command=self.download_controller.download_selected)
         self.install_queue_button.pack(side=tk.LEFT, padx=(0, 5))
@@ -221,10 +219,12 @@ class GameLibraryGUI:
         self.game_tree.column('game_key', width=0, stretch=False)   # Hidden
         self.game_tree.column('variant_key', width=0, stretch=False) # Hidden
         
-        # Configure tree tag styles
+        # Configure tree tag styles - order matters for precedence
         self.game_tree.tag_configure('installed', background='lightgreen')
         self.game_tree.tag_configure('queued', background='lightblue')
         self.game_tree.tag_configure('queued_installed', background='darkgreen', foreground='white')
+        # Configure installed_only LAST so it has highest precedence
+        self.game_tree.tag_configure('installed_only', background='orange', foreground='black')
         
         # Scrollbars
         tree_scroll_y = ttk.Scrollbar(content_frame, orient=tk.VERTICAL, command=self.game_tree.yview)
@@ -1018,13 +1018,35 @@ class GameLibraryGUI:
             # Process into library
             library = self.library_processor.process_rom_collection(roms, platform)
             
+            # Scan for installed-only ROMs and merge them in
+            self._safe_gui_update(lambda: self.update_status("Scanning for installed-only ROMs..."))
+            try:
+                target_directory = self.config_manager.get_target_directory(platform)
+                if target_directory:
+                    # Get normalized names of online ROMs to exclude them
+                    online_rom_names = {self.rom_filter._normalize_name(rom.clean_name) for rom in roms}
+                    
+                    # Scan for installed-only ROMs
+                    installed_only_roms = self.rom_filter.scan_installed_only_roms(
+                        target_directory, platform, online_rom_names
+                    )
+                    
+                    if installed_only_roms:
+                        logger.info(f"Found {len(installed_only_roms)} installed-only ROMs")
+                        # Merge installed-only ROMs into the library
+                        library = self.library_processor.merge_installed_only_roms(
+                            library, installed_only_roms, platform
+                        )
+            except Exception as e:
+                logger.error(f"Error scanning for installed-only ROMs: {e}")
+            
             # Merge with existing library using transaction to batch saves
             with self.state_manager:
                 for game in library.games.values():
                     self.state_manager.add_game(game)
             
-            # Update UI
-            self._safe_gui_update(lambda: self._scan_complete(len(library.games)))
+            # Update UI and automatically check installed ROMs
+            self._safe_gui_update(lambda: self._scan_complete_with_installation_check(len(library.games), platform))
             
         except Exception as e:
             logger.error(f"Error scanning ROMs: {e}")
@@ -1033,8 +1055,20 @@ class GameLibraryGUI:
             self._safe_gui_update(lambda: self.progress_bar.stop())
             self._safe_gui_update(lambda: self.progress_bar.configure(mode='determinate'))
     
+    def _scan_complete_with_installation_check(self, count: int, platform: str):
+        """Handle scan completion and automatically check installed ROMs"""
+        self.update_status(f"Scan complete: {count} games found. Checking installed ROMs...")
+        
+        # Update tag buttons
+        platform_tags = self.state_manager.get_platform_tags(platform)
+        categorized_tags = self.library_processor.categorize_tags(platform_tags) if platform_tags else {}
+        self.tag_filter_manager.update_tag_buttons(platform, categorized_tags)
+        
+        # Automatically check for installed ROMs
+        self.installation_status_manager.check_installed_roms()
+        
     def _scan_complete(self, count: int):
-        """Handle scan completion"""
+        """Handle scan completion (legacy method, kept for compatibility)"""
         self.update_status(f"Scan complete: {count} games found")
         display_name = self.current_platform.get()
         platform = self._get_platform_key_from_display_name(display_name) if display_name else None
@@ -1043,29 +1077,6 @@ class GameLibraryGUI:
             categorized_tags = self.library_processor.categorize_tags(platform_tags) if platform_tags else {}
             self.tag_filter_manager.update_tag_buttons(platform, categorized_tags)
             self.refresh_game_list()
-    
-    def check_installed_for_current_platform(self):
-        """Check installed ROMs for current platform using the same method as platform changes"""
-        display_name = self.current_platform.get()
-        if not display_name:
-            messagebox.showwarning("Warning", "Please select a platform first")
-            return
-        
-        platform = self._get_platform_key_from_display_name(display_name)
-        if not platform:
-            messagebox.showerror("Error", f"Invalid platform: {display_name}")
-            return
-        
-        # Use the exact same method as platform changes
-        self.installation_status_manager.start_background_checking(platform)
-    
-    
-    
-    
-    
-    
-    
-    
     
     def clear_selections(self):
         """Clear all queued items for current platform"""
@@ -1187,7 +1198,6 @@ Usage:
         state = "disabled" if downloading else "normal"
         self.platform_combo.config(state="disabled" if downloading else "readonly")
         self.scan_button.config(state=state)
-        self.check_installed_button.config(state=state)
         self.install_queue_button.config(state=state)
         self.clear_queue_button.config(state=state)
         

@@ -76,19 +76,45 @@ class QueueManager:
         if current_selection:
             return False  # Already queued
         
-        # Add to queue - pick best variant
+        # Add to queue - pick best variant that's not installed-only
         variants = game.get_variants_for_platform(platform)
-        if variants:
-            best_variant = game.get_best_variant(platform, self.parent_gui.config_manager.get_preferred_regions())
+        # Filter out installed-only ROMs since they can't be downloaded
+        downloadable_variants = [rom for rom in variants if not rom.is_installed_only]
+        
+        if downloadable_variants:
+            # Create a temporary game with only downloadable variants to get best choice
+            temp_game = Game(key=game.key, display_name=game.display_name, platforms=game.platforms)
+            for variant in downloadable_variants:
+                temp_game.add_variant(variant)
+            
+            best_variant = temp_game.get_best_variant(platform, self.parent_gui.config_manager.get_preferred_regions())
             if best_variant:
                 variant_key = best_variant.create_variant_key()
                 self.parent_gui.state_manager.select_rom_variant(game_key, platform, variant_key)
                 return True
+        elif variants:
+            # Game has only installed-only ROMs
+            logger.warning(f"Cannot queue game '{game.display_name}' - all variants are installed-only")
+            return False
         
         return False
     
     def add_variant_to_queue_batch(self, game_key: str, platform: str, variant_key: str) -> bool:
         """Add a specific variant to download queue (batch operation, returns True if modified)"""
+        # Find the ROM variant to check if it's installed-only
+        game = self._find_game_by_key(game_key)
+        if not game:
+            return False
+        
+        rom_variant = game.variants.get(variant_key)
+        if not rom_variant:
+            return False
+            
+        # Prevent queueing installed-only ROMs
+        if rom_variant.is_installed_only:
+            logger.warning(f"Cannot queue installed-only ROM: {rom_variant.filename}")
+            return False
+        
         # Check if already queued with this variant
         current_selection = self.parent_gui.state_manager.get_selection(game_key, platform)
         if current_selection and current_selection.selected_rom_variant == variant_key:

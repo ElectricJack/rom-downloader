@@ -473,6 +473,75 @@ class RomFilter:
         
         return False, "", ""
     
+    def scan_installed_only_roms(self, target_directory: Path, platform: str, existing_online_roms: Set[str]) -> List['RomInfo']:
+        """Scan for ROMs that are installed but not available online.
+        
+        Args:
+            target_directory: Path to scan for existing ROMs.
+            platform: Platform name for ROM creation.
+            existing_online_roms: Set of normalized names of ROMs available online.
+            
+        Returns:
+            List of RomInfo objects for installed-only ROMs.
+        """
+        from src.scraper.web_scraper import RomInfo
+        
+        installed_only_roms = []
+        
+        if not target_directory.exists():
+            return installed_only_roms
+        
+        logger.info(f"Scanning for installed-only ROMs in: {target_directory}")
+        
+        try:
+            rom_extensions = {'.rvz', '.zip', '.7z', '.iso', '.gcm', '.bin', '.cue', '.chd', 
+                             '.n64', '.z64', '.v64', '.nes', '.sfc', '.smc', '.gba', '.gbc', '.gb', 
+                             '.nds', '.vb', '.pce', '.a26', '.a52', '.a78', '.cdi', '.gdi', '.wux', '.wud'}
+            
+            for file_path in target_directory.iterdir():
+                if file_path.is_file():
+                    file_name = file_path.name
+                    
+                    # Check if it's a ROM file
+                    has_rom_extension = any(file_name.lower().endswith(ext) for ext in rom_extensions)
+                    
+                    if has_rom_extension and not file_name.startswith('.'):
+                        # Get stem (filename without extension)
+                        stem = file_path.stem
+                        
+                        # Normalize the name same as online ROMs
+                        normalized_name = self._normalize_name(stem)
+                        
+                        # Check if this ROM is NOT available online
+                        if normalized_name not in existing_online_roms:
+                            # Get file size
+                            try:
+                                size_bytes = file_path.stat().st_size
+                                size_str = self._format_bytes(size_bytes)
+                            except (OSError, PermissionError):
+                                size_str = "Unknown"
+                            
+                            # Create RomInfo for this installed-only ROM
+                            rom_info = RomInfo(
+                                name=file_name,
+                                url="",  # No URL since it's not available online
+                                size=size_str
+                            )
+                            # Mark this as installed-only in clean_name
+                            rom_info.clean_name = stem
+                            rom_info.is_installed_only = True
+                            
+                            installed_only_roms.append(rom_info)
+                            
+                            logger.info(f"Found installed-only ROM: {file_name} (normalized: {normalized_name})")
+            
+            logger.info(f"Found {len(installed_only_roms)} installed-only ROMs")
+            
+        except Exception as e:
+            logger.error(f"Error scanning for installed-only ROMs: {e}")
+        
+        return installed_only_roms
+    
     def _format_bytes(self, bytes_count: int) -> str:
         """Format bytes in human readable format."""
         for unit in ['B', 'KB', 'MB', 'GB']:

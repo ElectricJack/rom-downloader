@@ -20,6 +20,7 @@ class ROM:
     game_key: str = ""
     clean_name: str = ""  # Cleaned filename for display
     _installed_filename: Optional[str] = field(default=None, init=False)  # Actual installed filename on disk
+    is_installed_only: bool = False  # True if ROM is only available locally, not online
     
     def __post_init__(self):
         """Ensure tags is always a set"""
@@ -211,7 +212,8 @@ class GameLibrary:
     
     def get_games_for_platform(self, platform: str) -> List[Game]:
         """Get all games available for a specific platform"""
-        return [game for game in self.games.values() if platform in game.platforms]
+        games = [game for game in self.games.values() if platform in game.platforms]
+        return sorted(games, key=lambda game: game.display_name.lower())
     
     def get_platform_tags(self, platform: str) -> Set[str]:
         """Get all unique tags for a platform"""

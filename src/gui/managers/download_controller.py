@@ -149,8 +149,8 @@ class DownloadController:
             # Wait for all copies to complete, then show final results
             self.gui._safe_gui_update(lambda: self.update_status("Downloads complete, waiting for all copies to finish..."))
             
-            # Wait for all pending copies to complete
-            all_copies_complete = self.download_manager.wait_for_all_copies_complete(timeout=300)  # 5 minute timeout
+            # Wait for all pending copies to complete without timeout - let them finish naturally
+            all_copies_complete = self.download_manager.wait_for_all_copies_complete(timeout=None)
             
             if all_copies_complete:
                 self.gui._safe_gui_update(lambda: self._installation_complete())

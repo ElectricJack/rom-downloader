@@ -268,39 +268,15 @@ class GameLibraryGUI:
     def update_context_menu_state(self, item_id: str):
         """Update context menu items based on selected item's installation status"""
         try:
-            # Get item details
-            item_details = self.tree_event_handler.get_item_details(item_id)
-            item_type = item_details.get('item_type')
-            game_key = item_details.get('game_key')
-            variant_key = item_details.get('variant_key')
+            # Get all selected items
+            selected_items = self.game_tree.selection()
             
-            # Determine if reveal should be enabled and get the target variant
-            reveal_in_explorer_enabled, target_variant_info = self._determine_reveal_target(item_id, item_type, item_details)
-            
-            # Determine if queue actions should be enabled
-            add_to_queue_enabled, remove_from_queue_enabled = self._determine_queue_actions_state(
-                item_type, game_key, variant_key
-            )
-            
-            # Determine if uninstall should be enabled (same logic as reveal - only for installed ROMs)
-            uninstall_enabled = reveal_in_explorer_enabled
-            
-            # Update menu item states
-            self.context_menu.entryconfig(self.add_to_queue_index, state="normal" if add_to_queue_enabled else "disabled")
-            self.context_menu.entryconfig(self.remove_from_queue_index, state="normal" if remove_from_queue_enabled else "disabled")
-            self.context_menu.entryconfig(self.add_all_variants_index, state="normal" if add_to_queue_enabled else "disabled")
-            self.context_menu.entryconfig(self.remove_all_variants_index, state="normal" if remove_from_queue_enabled else "disabled")
-            
-            if reveal_in_explorer_enabled:
-                self.context_menu.entryconfig(self.reveal_in_explorer_index, state="normal")
-                # Store the target variant info for use in reveal_in_file_explorer
-                self._reveal_target_info = target_variant_info
+            if len(selected_items) > 1:
+                # Multiple items selected - handle bulk operations
+                self._update_context_menu_for_bulk_selection(selected_items)
             else:
-                self.context_menu.entryconfig(self.reveal_in_explorer_index, state="disabled")
-                self._reveal_target_info = None
-                
-            # Uninstall uses the same logic as reveal
-            self.context_menu.entryconfig(self.uninstall_index, state="normal" if uninstall_enabled else "disabled")
+                # Single item selected - use existing logic
+                self._update_context_menu_for_single_selection(item_id)
                 
         except Exception as e:
             logger.error(f"Error updating context menu state: {e}")
@@ -312,6 +288,92 @@ class GameLibraryGUI:
             self.context_menu.entryconfig(self.reveal_in_explorer_index, state="disabled")
             self.context_menu.entryconfig(self.uninstall_index, state="disabled")
             self._reveal_target_info = None
+    
+    def _update_context_menu_for_single_selection(self, item_id: str):
+        """Update context menu for single item selection"""
+        # Get item details
+        item_details = self.tree_event_handler.get_item_details(item_id)
+        item_type = item_details.get('item_type')
+        game_key = item_details.get('game_key')
+        variant_key = item_details.get('variant_key')
+        
+        # Determine if reveal should be enabled and get the target variant
+        reveal_in_explorer_enabled, target_variant_info = self._determine_reveal_target(item_id, item_type, item_details)
+        
+        # Determine if queue actions should be enabled
+        add_to_queue_enabled, remove_from_queue_enabled = self._determine_queue_actions_state(
+            item_type, game_key, variant_key
+        )
+        
+        # Determine if uninstall should be enabled (same logic as reveal - only for installed ROMs)
+        uninstall_enabled = reveal_in_explorer_enabled
+        
+        # Update menu item states
+        self.context_menu.entryconfig(self.add_to_queue_index, state="normal" if add_to_queue_enabled else "disabled")
+        self.context_menu.entryconfig(self.remove_from_queue_index, state="normal" if remove_from_queue_enabled else "disabled")
+        self.context_menu.entryconfig(self.add_all_variants_index, state="normal" if add_to_queue_enabled else "disabled")
+        self.context_menu.entryconfig(self.remove_all_variants_index, state="normal" if remove_from_queue_enabled else "disabled")
+        
+        if reveal_in_explorer_enabled:
+            self.context_menu.entryconfig(self.reveal_in_explorer_index, state="normal")
+            # Store the target variant info for use in reveal_in_file_explorer
+            self._reveal_target_info = target_variant_info
+        else:
+            self.context_menu.entryconfig(self.reveal_in_explorer_index, state="disabled")
+            self._reveal_target_info = None
+            
+        # Update uninstall menu text and state for single selection
+        self.context_menu.entryconfig(self.uninstall_index, label="Uninstall", state="normal" if uninstall_enabled else "disabled")
+    
+    def _update_context_menu_for_bulk_selection(self, selected_items: list):
+        """Update context menu for multiple item selection"""
+        # For bulk selection, disable queue operations and reveal
+        self.context_menu.entryconfig(self.add_to_queue_index, state="disabled")
+        self.context_menu.entryconfig(self.remove_from_queue_index, state="disabled")
+        self.context_menu.entryconfig(self.add_all_variants_index, state="disabled")
+        self.context_menu.entryconfig(self.remove_all_variants_index, state="disabled")
+        self.context_menu.entryconfig(self.reveal_in_explorer_index, state="disabled")
+        self._reveal_target_info = None
+        
+        # Check if any selected items have installed ROMs
+        installed_games_count = self._count_installed_games_in_selection(selected_items)
+        
+        if installed_games_count > 0:
+            # Enable bulk uninstall with updated label
+            self.context_menu.entryconfig(self.uninstall_index, 
+                                        label=f"Uninstall ({installed_games_count} installed games)", 
+                                        state="normal")
+        else:
+            # No installed games in selection
+            self.context_menu.entryconfig(self.uninstall_index, 
+                                        label="Uninstall", 
+                                        state="disabled")
+    
+    def _count_installed_games_in_selection(self, selected_items: list) -> int:
+        """Count how many selected items have installed ROMs"""
+        installed_count = 0
+        
+        for item_id in selected_items:
+            try:
+                item_details = self.tree_event_handler.get_item_details(item_id)
+                item_type = item_details.get('item_type')
+                
+                if item_type == 'game':
+                    # Check if the game has any installed variants
+                    installed_variants = self._get_installed_variants_info(item_id)
+                    if installed_variants:
+                        installed_count += 1
+                elif item_type == 'variant':
+                    # Check if this specific variant is installed
+                    installed_status = self.game_tree.set(item_id, 'installed')
+                    if installed_status == "✓":
+                        installed_count += 1
+                        
+            except Exception as e:
+                logger.error(f"Error checking installation status for {item_id}: {e}")
+                continue
+                
+        return installed_count
     
     def _determine_queue_actions_state(self, item_type: str, game_key: str, variant_key: str) -> tuple[bool, bool]:
         """Determine if queue actions should be enabled for the selected item
@@ -573,8 +635,68 @@ class GameLibraryGUI:
             else:
                 messagebox.showerror("Error", f"ROM folder does not exist: {target_dir}")
     
+    def _delete_cue_and_bin_files(self, rom_file_path: Path) -> List[Path]:
+        """Delete a cue file and all its associated bin files
+        
+        Args:
+            rom_file_path: Path to the ROM file (could be .cue or .bin)
+            
+        Returns:
+            List of successfully deleted files
+        """
+        deleted_files = []
+        
+        if rom_file_path.suffix.lower() == '.cue':
+            # For .cue files, find and delete associated .bin files
+            parent_dir = rom_file_path.parent
+            stem = rom_file_path.stem
+            
+            # Find all associated .bin files (e.g., game.bin, game (Track 1).bin, etc.)
+            bin_files = list(parent_dir.glob(f"{stem}*.bin"))
+            
+            # Delete the .cue file first
+            rom_file_path.unlink()
+            deleted_files.append(rom_file_path)
+            logger.info(f"Deleted cue file: {rom_file_path}")
+            
+            # Delete all associated .bin files
+            for bin_file in bin_files:
+                if bin_file.exists():
+                    bin_file.unlink()
+                    deleted_files.append(bin_file)
+                    logger.info(f"Deleted associated bin file: {bin_file}")
+        
+        elif rom_file_path.suffix.lower() == '.bin':
+            # For .bin files, check if there's a corresponding .cue file
+            cue_file = rom_file_path.with_suffix('.cue')
+            if cue_file.exists():
+                # If there's a .cue file, delete both .cue and all .bin files
+                deleted_files = self._delete_cue_and_bin_files(cue_file)
+            else:
+                # Just delete the .bin file if no .cue exists
+                rom_file_path.unlink()
+                deleted_files.append(rom_file_path)
+                logger.info(f"Deleted bin file: {rom_file_path}")
+        
+        else:
+            # For other file types, just delete the single file
+            rom_file_path.unlink()
+            deleted_files.append(rom_file_path)
+            logger.info(f"Deleted ROM file: {rom_file_path}")
+        
+        return deleted_files
+
     def uninstall_rom(self):
-        """Uninstall the selected ROM file"""
+        """Uninstall the selected ROM file(s) - handles both single and bulk selection"""
+        selected_items = self.game_tree.selection()
+        
+        if len(selected_items) > 1:
+            self._bulk_uninstall_roms(selected_items)
+        else:
+            self._single_uninstall_rom()
+    
+    def _single_uninstall_rom(self):
+        """Uninstall a single selected ROM file"""
         from tkinter import messagebox
         
         try:
@@ -628,14 +750,29 @@ class GameLibraryGUI:
             
             # Confirm uninstall
             rom_name = rom.clean_name or rom.filename
-            if not messagebox.askyesno("Confirm Uninstall", 
-                                     f"Are you sure you want to uninstall:\n\n{rom_name}\n\nThis action cannot be undone."):
+            
+            # Check if this is a cue/bin set and inform user
+            confirmation_message = f"Are you sure you want to uninstall:\n\n{rom_name}"
+            if rom_file_path.suffix.lower() == '.cue':
+                # Count associated bin files
+                parent_dir = rom_file_path.parent
+                stem = rom_file_path.stem
+                bin_files = list(parent_dir.glob(f"{stem}*.bin"))
+                if bin_files:
+                    confirmation_message += f"\n\nThis will also delete {len(bin_files)} associated BIN file(s)."
+            elif rom_file_path.suffix.lower() == '.bin':
+                cue_file = rom_file_path.with_suffix('.cue')
+                if cue_file.exists():
+                    confirmation_message += f"\n\nThis will also delete the associated CUE file and any other BIN files."
+            
+            confirmation_message += f"\n\nThis action cannot be undone."
+            
+            if not messagebox.askyesno("Confirm Uninstall", confirmation_message):
                 return
             
             # Perform the uninstall
             try:
-                rom_file_path.unlink()  # Delete the file
-                logger.info(f"Successfully uninstalled ROM: {rom_file_path}")
+                deleted_files = self._delete_cue_and_bin_files(rom_file_path)
                 
                 # Update ROM state to reflect uninstalled status
                 rom.set_installed(False, None)
@@ -647,10 +784,10 @@ class GameLibraryGUI:
                 # Update the tree display for this game
                 self.update_game_tree_item(game_key, platform)
                 
-                # Show success message
-                messagebox.showinfo("Success", f"Successfully uninstalled {rom_name}")
+                # Show success message with count of deleted files
+                self._show_uninstall_success_message([deleted_files], [rom_name])
                 
-                logger.info(f"ROM uninstalled successfully: {rom_name}")
+                logger.info(f"ROM uninstalled successfully: {rom_name} ({len(deleted_files)} files deleted)")
                 
             except Exception as delete_error:
                 logger.error(f"Error deleting ROM file: {delete_error}")
@@ -659,6 +796,183 @@ class GameLibraryGUI:
         except Exception as e:
             logger.error(f"Error uninstalling ROM: {e}")
             messagebox.showerror("Error", f"An error occurred while trying to uninstall the ROM: {e}")
+    
+    def _bulk_uninstall_roms(self, selected_items: list):
+        """Uninstall multiple selected ROM files"""
+        from tkinter import messagebox
+        
+        try:
+            display_name = self.current_platform.get()
+            platform = self._get_platform_key_from_display_name(display_name) if display_name else None
+            
+            if not platform:
+                messagebox.showerror("Error", "Could not determine current platform.")
+                return
+            
+            # Collect all installed variants from selected items
+            variants_to_uninstall = []
+            
+            for item_id in selected_items:
+                try:
+                    item_details = self.tree_event_handler.get_item_details(item_id)
+                    item_type = item_details.get('item_type')
+                    game_key = item_details.get('game_key')
+                    
+                    if item_type == 'game':
+                        # Get all installed variants for this game
+                        installed_variants = self._get_installed_variants_info(item_id)
+                        for variant_info in installed_variants:
+                            variants_to_uninstall.append(variant_info)
+                    elif item_type == 'variant':
+                        # Check if this specific variant is installed
+                        installed_status = self.game_tree.set(item_id, 'installed')
+                        if installed_status == "✓":
+                            variant_key = item_details.get('variant_key')
+                            variants_to_uninstall.append({
+                                'game_key': game_key,
+                                'variant_key': variant_key,
+                                'item_id': item_id
+                            })
+                            
+                except Exception as e:
+                    logger.error(f"Error processing item {item_id}: {e}")
+                    continue
+            
+            if not variants_to_uninstall:
+                messagebox.showwarning("No ROMs", "No installed ROMs found in selection.")
+                return
+            
+            # Confirm bulk uninstall
+            game_names = []
+            for variant_info in variants_to_uninstall:
+                game_key = variant_info.get('game_key')
+                # Find the game to get its name
+                for game in self.current_games:
+                    if game.key == game_key:
+                        game_names.append(game.name)
+                        break
+            
+            unique_games = list(set(game_names))
+            confirmation_message = f"Are you sure you want to uninstall {len(variants_to_uninstall)} ROM variant(s) from {len(unique_games)} game(s)?"
+            
+            if len(unique_games) <= 5:
+                confirmation_message += "\n\nGames:\n" + "\n".join([f"• {name}" for name in unique_games[:5]])
+            else:
+                confirmation_message += f"\n\nGames:\n" + "\n".join([f"• {name}" for name in unique_games[:5]])
+                confirmation_message += f"\n• ... and {len(unique_games) - 5} more"
+            
+            confirmation_message += "\n\nThis action cannot be undone."
+            
+            if not messagebox.askyesno("Confirm Bulk Uninstall", confirmation_message):
+                return
+            
+            # Perform bulk uninstall
+            all_deleted_files = []
+            successfully_uninstalled_names = []
+            failed_uninstalls = []
+            
+            for variant_info in variants_to_uninstall:
+                try:
+                    game_key = variant_info.get('game_key')
+                    variant_key = variant_info.get('variant_key')
+                    
+                    # Find the game and ROM variant
+                    game = None
+                    for g in self.current_games:
+                        if g.key == game_key:
+                            game = g
+                            break
+                    
+                    if not game:
+                        failed_uninstalls.append(f"Game not found: {game_key}")
+                        continue
+                    
+                    # Find the specific ROM variant
+                    rom = None
+                    for rom_variant in game.variants.values():
+                        if rom_variant.create_variant_key() == variant_key:
+                            rom = rom_variant
+                            break
+                    
+                    if not rom:
+                        failed_uninstalls.append(f"ROM variant not found: {variant_key}")
+                        continue
+                    
+                    # Get the ROM file path
+                    rom_file_path = self._get_installed_rom_path(game_key, variant_key, platform)
+                    if not rom_file_path or not rom_file_path.exists():
+                        failed_uninstalls.append(f"File not found: {rom.clean_name or rom.filename}")
+                        continue
+                    
+                    # Delete the ROM and associated files
+                    deleted_files = self._delete_cue_and_bin_files(rom_file_path)
+                    all_deleted_files.append(deleted_files)
+                    
+                    # Update ROM state
+                    rom.set_installed(False, None)
+                    
+                    # Update tree display
+                    self.update_game_tree_item(game_key, platform)
+                    
+                    successfully_uninstalled_names.append(rom.clean_name or rom.filename)
+                    
+                    logger.info(f"ROM uninstalled successfully: {rom.clean_name or rom.filename} ({len(deleted_files)} files deleted)")
+                    
+                except Exception as e:
+                    logger.error(f"Error uninstalling ROM {variant_info}: {e}")
+                    failed_uninstalls.append(f"Error: {str(e)}")
+                    continue
+            
+            # Remove from existing ROMs cache
+            if hasattr(self, 'installation_status_manager'):
+                self.installation_status_manager.clear_existing_roms_cache()
+            
+            # Show results
+            self._show_bulk_uninstall_results(all_deleted_files, successfully_uninstalled_names, failed_uninstalls)
+            
+        except Exception as e:
+            logger.error(f"Error in bulk uninstall: {e}")
+            messagebox.showerror("Error", f"An error occurred during bulk uninstall: {e}")
+    
+    def _show_uninstall_success_message(self, deleted_files_list: list, rom_names: list):
+        """Show success message for uninstall operation"""
+        from tkinter import messagebox
+        
+        if len(deleted_files_list) == 1:
+            # Single ROM uninstall
+            deleted_files = deleted_files_list[0]
+            rom_name = rom_names[0]
+            
+            if len(deleted_files) > 1:
+                if len(deleted_files) <= 10:
+                    file_list = "\n".join([f"• {f.name}" for f in deleted_files])
+                    messagebox.showinfo("Success", f"Successfully uninstalled {rom_name}\n\nDeleted files:\n{file_list}")
+                else:
+                    messagebox.showinfo("Success", f"Successfully uninstalled {rom_name}\n\nDeleted {len(deleted_files)} files.")
+            else:
+                messagebox.showinfo("Success", f"Successfully uninstalled {rom_name}")
+    
+    def _show_bulk_uninstall_results(self, all_deleted_files: list, successfully_uninstalled_names: list, failed_uninstalls: list):
+        """Show results of bulk uninstall operation"""
+        from tkinter import messagebox
+        
+        total_files_deleted = sum(len(deleted_files) for deleted_files in all_deleted_files)
+        success_count = len(successfully_uninstalled_names)
+        
+        message = f"Bulk uninstall completed!\n\n"
+        message += f"Successfully uninstalled: {success_count} ROM(s)\n"
+        message += f"Total files deleted: {total_files_deleted}"
+        
+        if failed_uninstalls:
+            message += f"\n\nFailed uninstalls ({len(failed_uninstalls)}):\n"
+            message += "\n".join([f"• {failure}" for failure in failed_uninstalls[:5]])
+            if len(failed_uninstalls) > 5:
+                message += f"\n• ... and {len(failed_uninstalls) - 5} more"
+        
+        if success_count > 0:
+            messagebox.showinfo("Bulk Uninstall Results", message)
+        else:
+            messagebox.showerror("Bulk Uninstall Failed", message)
     
     def update_game_tree_item(self, game_key: str, platform: str):
         """Update a specific game's tree items without full refresh"""

@@ -116,7 +116,8 @@ class SettingsWindow:
             settings = self.config_data.get("settings", {})
             self.delay_min_var.set(settings.get("download_delay_min", 2))
             self.delay_max_var.set(settings.get("download_delay_max", 5))
-            self.max_concurrent_var.set(settings.get("max_concurrent_downloads", 1))
+            # Always set max concurrent downloads to 1 (fixed for server protection)
+            self.max_concurrent_var.set(1)
             
             # Load network drives
             self.network_drives_list = self.config_manager.get_network_drive_paths()
@@ -172,8 +173,11 @@ class SettingsWindow:
         concurrent_frame.pack(fill=tk.X, padx=10, pady=10)
         
         ttk.Label(concurrent_frame, text="Maximum concurrent downloads:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
-        concurrent_spinbox = ttk.Spinbox(concurrent_frame, from_=1, to=10, textvariable=self.max_concurrent_var, width=10)
+        concurrent_spinbox = ttk.Spinbox(concurrent_frame, from_=1, to=1, textvariable=self.max_concurrent_var, width=10, state="disabled")
         concurrent_spinbox.grid(row=0, column=1, padx=5, pady=5)
+        
+        # Add a note explaining why this is disabled
+        ttk.Label(concurrent_frame, text="(Fixed at 1 to prevent server overload)", font=('TkDefaultFont', 8), foreground='gray').grid(row=0, column=2, sticky=tk.W, padx=5, pady=5)
         
         # Help text
         help_frame = ttk.LabelFrame(tab_frame, text="Help")
@@ -185,9 +189,9 @@ class SettingsWindow:
 • Recommended: 2-5 seconds
 
 Concurrent Downloads:
-• Number of downloads that can run simultaneously
-• Higher values download faster but use more bandwidth
-• Recommended: 1-3 downloads"""
+• Fixed at 1 download at a time to prevent server overload
+• This ensures respectful usage of download servers
+• Cannot be changed to protect server resources"""
         
         ttk.Label(help_frame, text=help_text, justify=tk.LEFT).pack(padx=5, pady=5)
     
@@ -896,7 +900,8 @@ Examples:
             settings = self.config_data.setdefault("settings", {})
             settings["download_delay_min"] = self.delay_min_var.get()
             settings["download_delay_max"] = self.delay_max_var.get()
-            settings["max_concurrent_downloads"] = self.max_concurrent_var.get()
+            # Always save max concurrent downloads as 1 (fixed for server protection)
+            settings["max_concurrent_downloads"] = 1
             settings["network_drive_paths"] = self.network_drives_list
             settings["current_network_drive_path"] = current_drive
             

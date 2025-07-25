@@ -87,6 +87,43 @@ class ZipExtractorTool(ToolHandler):
         try:
             logger.info(f"Extracting ZIP: {file_path}")
             
+            # Verify file exists and has content before attempting extraction
+            if not file_path.exists():
+                return ProcessingResult(
+                    success=False,
+                    output_files=[],
+                    error_message=f"ZIP file does not exist: {file_path}"
+                )
+            
+            file_size = file_path.stat().st_size
+            if file_size == 0:
+                return ProcessingResult(
+                    success=False,
+                    output_files=[],
+                    error_message=f"ZIP file is empty: {file_path} (0 bytes)"
+                )
+            
+            logger.info(f"ZIP file size: {file_size} bytes")
+            
+            # Test ZIP file integrity before extraction
+            try:
+                with zipfile.ZipFile(file_path, 'r') as test_zip:
+                    # Test the ZIP file by reading its central directory
+                    test_result = test_zip.testzip()
+                    if test_result:
+                        return ProcessingResult(
+                            success=False,
+                            output_files=[],
+                            error_message=f"ZIP file corruption detected in file: {test_result}"
+                        )
+                    logger.info(f"ZIP integrity test passed for {file_path}")
+            except zipfile.BadZipFile as e:
+                return ProcessingResult(
+                    success=False,
+                    output_files=[],
+                    error_message=f"Invalid ZIP file (integrity test): {file_path} - {e}"
+                )
+            
             with zipfile.ZipFile(file_path, 'r') as zip_ref:
                 # Extract all files
                 zip_ref.extractall(output_dir)

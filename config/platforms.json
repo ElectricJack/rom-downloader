@@ -277,7 +277,7 @@
     },
     "PCFX": {
       "name": "NEC PC-FX",
-      "url": "https://myrient.erista.me/files/Redump/NEC%20-%20PC-FX/",
+      "url": "https://myrient.erista.me/files/Redump/NEC%20-%20PC-FX%20&%20PC-FXGA/",
       "target_folder": "pcfx",
       "file_extensions": [
         ".bin",

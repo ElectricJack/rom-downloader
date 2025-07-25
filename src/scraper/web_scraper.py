@@ -112,8 +112,10 @@ class WebScraper:
             is_archive_org = 'archive.org' in url
             
             if is_archive_org:
+                logger.info(f"Using archive.org scraping method for {url}")
                 roms = self._scrape_archive_org(soup, url, file_pattern)
             else:
+                logger.info(f"Using generic scraping method for {url}")
                 roms = self._scrape_generic(soup, url, file_pattern)
             
             total_time = time.time() - start_time
@@ -229,6 +231,7 @@ class WebScraper:
     def _scrape_generic(self, soup: BeautifulSoup, base_url: str, file_pattern: str = None) -> List[RomInfo]:
         """Scrape ROM files from generic directory listing pages."""
         import time
+        from urllib.parse import unquote
         roms = []
         
         # Look for file links - common patterns for directory listings
@@ -250,11 +253,12 @@ class WebScraper:
             
             processed_count += 1
             
-            # Get the full URL
+            # Get the full URL - for myrient, we need to properly handle spaces
+            # Don't decode href, let urljoin handle the encoding properly
             full_url = urljoin(base_url, href)
             
-            # Extract file name from href or link text
-            file_name = href.strip('/')
+            # Extract file name from href or link text  
+            file_name = unquote(href).strip('/')
             if not file_name:
                 file_name = link.get_text().strip()
             
@@ -268,6 +272,10 @@ class WebScraper:
                     continue
             
             matched_count += 1
+            
+            # Debug logging for first few matches
+            if matched_count <= 5:
+                logger.info(f"Debug match #{matched_count}: href='{href}', file_name='{file_name}', full_url='{full_url}'")
             
             # Extract file size if available
             size_text = ""

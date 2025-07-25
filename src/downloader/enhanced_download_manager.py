@@ -224,11 +224,13 @@ class EnhancedDownloadManager:
         
         try:
             # Step 1: Download the ROM
+            logger.info(f"Starting download for {rom.filename} from {rom.url}")
             download_start = time.time()
             downloaded_file = self._download_rom(rom, self.temp_dir, progress_callback)
             download_time = time.time() - download_start
             
             if not downloaded_file:
+                logger.error(f"Download returned None for {rom.filename}")
                 return DownloadResult(
                     rom=rom,
                     success=False,
@@ -285,12 +287,46 @@ class EnhancedDownloadManager:
             if temp_file.exists():
                 temp_file.unlink()
             
-            # Start download
-            response = self.session.get(rom.url, stream=True, timeout=30)
+            # Start download with comprehensive browser-like headers for myrient compatibility
+            base_url = '/'.join(rom.url.split('/')[:-1]) + '/'
+            
+            # First, visit the directory page to establish session (anti-hotlinking protection)
+            try:
+                logger.debug(f"Pre-visiting directory page: {base_url}")
+                directory_response = self.session.get(base_url, timeout=15)
+                directory_response.raise_for_status()
+            except Exception as e:
+                logger.warning(f"Failed to pre-visit directory page: {e}")
+            
+            headers = {
+                'Referer': base_url,
+                'Accept': 'application/octet-stream,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'DNT': '1',
+                'Connection': 'keep-alive',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'same-origin'
+            }
+            response = self.session.get(rom.url, stream=True, timeout=30, headers=headers)
             response.raise_for_status()
+            
+            # Log response details for debugging
+            content_type = response.headers.get('content-type', 'unknown')
+            final_url = response.url
+            logger.info(f"HTTP {response.status_code}, Content-Type: {content_type}")
+            if final_url != rom.url:
+                logger.info(f"Request redirected from {rom.url} to {final_url}")
+            
+            # Check if we're getting HTML instead of expected file type
+            if 'text/html' in content_type.lower():
+                logger.error(f"Received HTML response instead of file for {rom.filename}. This suggests a 404 or redirect page.")
+                return None
             
             # Get total size
             total_size = int(response.headers.get('content-length', 0))
+            logger.info(f"Expected download size: {total_size} bytes")
             downloaded_size = 0
             start_time = time.time()
             
@@ -323,8 +359,17 @@ class EnhancedDownloadManager:
                         
                         if progress_callback:
                             progress_callback(rom, progress)
+                # Ensure file is fully written to disk before processing
+                f.flush()
+                os.fsync(f.fileno())
             
             logger.debug(f"Downloaded {rom.filename} ({downloaded_size} bytes)")
+            
+            # Verify file integrity before returning
+            if not temp_file.exists() or temp_file.stat().st_size != downloaded_size:
+                logger.error(f"Download verification failed for {rom.filename}: expected {downloaded_size} bytes, got {temp_file.stat().st_size if temp_file.exists() else 0}")
+                temp_file.unlink(missing_ok=True)
+                return None
             return temp_file
             
         except requests.RequestException as e:

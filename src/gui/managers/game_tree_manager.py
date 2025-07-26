@@ -149,6 +149,7 @@ class GameTreeManager:
             size_display = rom.size
             if rom.is_installed_only:
                 size_display = f"{rom.size} (Local only)"
+                logger.debug(f"ROM marked as local-only: {rom.filename} (size: {rom.size})")
             
             # Determine visual styling for variant
             variant_visual_tags = ['variant']
@@ -307,6 +308,7 @@ class GameTreeManager:
             size_display = rom.size
             if rom.is_installed_only:
                 size_display = f"{rom.size} (Local only)"
+                logger.debug(f"ROM marked as local-only: {rom.filename} (size: {rom.size})")
             
             # Determine visual styling for variant
             variant_visual_tags = ['variant']

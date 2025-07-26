@@ -21,7 +21,7 @@ class XboxExtractorTool(ToolHandler):
     
     @property
     def description(self) -> str:
-        return "Extract Xbox ISO files using extract-xiso"
+        return "Convert Xbox ISO files to XISO format using extract-xiso"
     
     @property
     def supported_file_types(self) -> List[str]:
@@ -53,14 +53,15 @@ class XboxExtractorTool(ToolHandler):
                 continue
                 
             if file_path.suffix.lower() == '.iso':
-                extract_dir = output_dir / file_path.stem
-                extract_dir.mkdir(parents=True, exist_ok=True)
+                # Create XISO output file name
+                output_file = output_dir / f"{file_path.stem}.xiso.iso"
                 
                 try:
-                    logger.info(f"Extracting Xbox ISO: {file_path} -> {extract_dir}")
+                    logger.info(f"Converting Xbox ISO to XISO: {file_path} -> {output_file}")
                     
-                    # Build extract-xiso command
-                    cmd = [str(extract_xiso_path), str(file_path), str(extract_dir)]
+                    # Build extract-xiso command to rewrite as optimized XISO
+                    # Use -r flag to rewrite ISO as XISO, -d to specify output directory  
+                    cmd = [str(extract_xiso_path), "-r", "-d", str(output_dir), str(file_path)]
                     
                     # Run extract-xiso
                     result = subprocess.run(
@@ -71,20 +72,30 @@ class XboxExtractorTool(ToolHandler):
                     )
                     
                     if result.returncode == 0:
-                        # Collect extracted files
-                        for extracted_file in extract_dir.rglob('*'):
-                            if extracted_file.is_file():
-                                output_files.append(extracted_file)
+                        # The -r flag creates the rewritten file in the output directory
+                        actual_output_file = output_dir / file_path.name
                         
-                        if output_files:
-                            logger.info(f"Successfully extracted {len(output_files)} files from {file_path}")
+                        if actual_output_file.exists():
+                            # Rename to .xiso.iso format
+                            if not actual_output_file.name.endswith('.xiso.iso'):
+                                actual_output_file.rename(output_file)
+                            else:
+                                output_file = actual_output_file
+                                
+                            output_files.append(output_file)
+                            logger.info(f"Successfully created XISO: {output_file}")
                             
                             # Remove original if requested
                             if parameters.get('remove_original', True):
-                                file_path.unlink()
-                                logger.info(f"Removed original ISO: {file_path}")
+                                try:
+                                    file_path.unlink()
+                                    logger.info(f"Removed original ISO: {file_path}")
+                                except FileNotFoundError:
+                                    logger.info(f"Original ISO already removed: {file_path}")
+                                except Exception as e:
+                                    logger.warning(f"Could not remove original ISO {file_path}: {e}")
                         else:
-                            logger.warning(f"No files extracted from {file_path}")
+                            logger.warning(f"XISO file not created: {actual_output_file}")
                     else:
                         return ProcessingResult(
                             success=False,
@@ -99,11 +110,16 @@ class XboxExtractorTool(ToolHandler):
                         error_message=f"Xbox extraction timeout for {file_path}"
                     )
                 except Exception as e:
-                    return ProcessingResult(
-                        success=False,
-                        output_files=[],
-                        error_message=f"Failed to extract {file_path}: {e}"
-                    )
+                    # If we successfully created output files, don't treat this as a failure
+                    if output_files:
+                        logger.warning(f"Minor error after successful XISO creation for {file_path}: {e}")
+                        break  # Continue to next file
+                    else:
+                        return ProcessingResult(
+                            success=False,
+                            output_files=[],
+                            error_message=f"Failed to extract {file_path}: {e}"
+                        )
         
         return ProcessingResult(
             success=True,

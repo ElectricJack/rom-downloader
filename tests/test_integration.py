@@ -66,7 +66,6 @@ class IntegrationTestCase(unittest.TestCase):
                     "url": "https://example.com/roms/",
                     "target_folder": "test_platform",
                     "file_extensions": [".zip", ".rom"],
-                    "file_pattern": ".*\\.(zip|rom)$",
                     "extract_archives": True,
                     "tool_pipeline": [
                         {
@@ -142,7 +141,6 @@ class TestConfigurationSystem(IntegrationTestCase):
             "url": "https://example.com/new/",
             "target_folder": "new_platform",
             "file_extensions": [".iso"],
-            "file_pattern": ".*\\.iso$",
             "extract_archives": False
         }
         

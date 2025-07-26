@@ -58,7 +58,6 @@ class SettingsWindow:
         self.platform_url_var = tk.StringVar()
         self.platform_folder_var = tk.StringVar()
         self.platform_extensions_var = tk.StringVar()
-        self.platform_pattern_var = tk.StringVar()
         self.platform_pipeline = []  # List of tool pipeline steps
     
     def show(self):
@@ -336,11 +335,6 @@ Examples:
         ttk.Label(self.platform_form_frame, text="(comma-separated, e.g. .zip,.7z,.rvz)", font=('TkDefaultFont', 8)).grid(row=row, column=2, sticky=tk.W, padx=5)
         row += 1
         
-        ttk.Label(self.platform_form_frame, text="File Pattern:").grid(row=row, column=0, sticky=tk.W, padx=5, pady=5)
-        ttk.Entry(self.platform_form_frame, textvariable=self.platform_pattern_var, width=40).grid(row=row, column=1, padx=5, pady=5, sticky=tk.EW)
-        ttk.Label(self.platform_form_frame, text="(regex pattern)", font=('TkDefaultFont', 8)).grid(row=row, column=2, sticky=tk.W, padx=5)
-        row += 1
-        
         # Tool Pipeline section
         ttk.Label(self.platform_form_frame, text="Tool Pipeline:").grid(row=row, column=0, sticky=tk.NW, padx=5, pady=5)
         
@@ -415,7 +409,6 @@ Examples:
         extensions = platform.get("file_extensions", [])
         self.platform_extensions_var.set(", ".join(extensions))
         
-        self.platform_pattern_var.set(platform.get("file_pattern", ""))
         
         # Load tool pipeline
         self.platform_pipeline = platform.get("tool_pipeline", [])
@@ -454,7 +447,6 @@ Examples:
                 "url": "",
                 "target_folder": key.lower(),
                 "file_extensions": [".zip"],
-                "file_pattern": ".*\\.zip$",
                 "tool_pipeline": []
             }
             
@@ -494,7 +486,6 @@ Examples:
                 self.platform_url_var.set("")
                 self.platform_folder_var.set("")
                 self.platform_extensions_var.set("")
-                self.platform_pattern_var.set("")
                 self.platform_pipeline = []
                 self.load_pipeline_tree()
     
@@ -521,15 +512,6 @@ Examples:
             messagebox.showerror("Error", "At least one file extension is required")
             return
         
-        # Validate regex pattern
-        pattern = self.platform_pattern_var.get().strip()
-        if pattern:
-            try:
-                re.compile(pattern)
-            except re.error as e:
-                messagebox.showerror("Error", f"Invalid regex pattern: {e}")
-                return
-        
         # Update platform data
         platforms = self.config_data.get("platforms", {})
         platforms[self.current_platform_key] = {
@@ -537,7 +519,6 @@ Examples:
             "url": self.platform_url_var.get().strip(),
             "target_folder": self.platform_folder_var.get().strip() or self.current_platform_key.lower(),
             "file_extensions": extensions,
-            "file_pattern": pattern,
             "tool_pipeline": self.platform_pipeline.copy()
         }
         

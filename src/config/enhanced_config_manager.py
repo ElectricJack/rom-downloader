@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any
 from src.tools.base import ToolStep
 from src.utils.dirs import app_dirs
+from src.utils.rom_utils import get_rom_utils
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,7 @@ class EnhancedConfigManager:
     def __init__(self, config_file: Path = None):
         self.config_file = config_file or app_dirs.get_config_dir() / 'platforms.json'
         self.config_data = {}
+        self.rom_utils = get_rom_utils()
         self.load_config()
     
     def load_config(self) -> bool:
@@ -89,7 +91,7 @@ class EnhancedConfigManager:
     
     def _validate_platform_config(self, platform_config: Dict[str, Any]) -> bool:
         """Validate a single platform configuration"""
-        required_fields = ['name', 'url', 'target_folder', 'file_pattern']
+        required_fields = ['name', 'url', 'target_folder', 'file_extensions']
         
         for field in required_fields:
             if field not in platform_config:
@@ -340,12 +342,8 @@ class EnhancedConfigManager:
         return platform_config.get('extract_archives', True)
     
     def get_file_pattern(self, platform_id: str) -> Optional[str]:
-        """Get file pattern for a platform"""
-        platform_config = self.get_platform_config(platform_id)
-        if not platform_config:
-            return None
-        
-        return platform_config.get('file_pattern')
+        """Get file pattern for a platform (generated from file extensions)"""
+        return self.rom_utils.generate_file_pattern_for_platform(platform_id)
     
     def get_supported_file_extensions(self, platform_id: str) -> List[str]:
         """Get supported file extensions for a platform"""
@@ -371,7 +369,6 @@ class EnhancedConfigManager:
                     "url": "https://myrient.erista.me/files/Redump/Nintendo%20-%20GameCube%20-%20NKit%20RVZ%20[zstd-19-128k]/",
                     "target_folder": "gamecube",
                     "file_extensions": [".rvz", ".zip", ".7z"],
-                    "file_pattern": ".*\\.(rvz|zip|7z)$",
                     "extract_archives": True,
                     "tool_pipeline": [
                         {
@@ -399,8 +396,7 @@ class EnhancedConfigManager:
                     "name": "Microsoft Xbox",
                     "url": "https://myrient.erista.me/files/Redump/Microsoft%20-%20Xbox/",
                     "target_folder": "xbox",
-                    "file_extensions": [".iso", ".zip", ".7z"],
-                    "file_pattern": ".*\\.(iso|zip|7z)$",
+                    "file_extensions": [".xiso", ".iso", ".zip", ".7z"],
                     "extract_archives": True,
                     "tool_pipeline": [
                         {

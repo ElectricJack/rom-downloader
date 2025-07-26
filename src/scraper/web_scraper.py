@@ -9,6 +9,8 @@ from typing import List, Dict, Optional
 from urllib.parse import urljoin, unquote
 import requests
 from bs4 import BeautifulSoup
+from pathlib import Path
+from ..utils.rom_utils import RomUtils
 
 logger = logging.getLogger(__name__)
 
@@ -46,20 +48,15 @@ class RomInfo:
     
     def _clean_name(self) -> str:
         """Clean the ROM name for display purposes."""
-        # Remove file extensions (all supported ROM and archive formats)
-        clean = re.sub(r'\.(rvz|zip|7z|iso|bin|cue|chd|gcm|nes|sfc|smc|gba|gbc|gb|nds|n64|z64|v64|vb|pce|a26|a52|a78|cdi|gdi|wux|wud)$', '', self.name, flags=re.IGNORECASE)
-        
-        # Remove common prefixes/suffixes but keep region info
-        clean = re.sub(r'^\[.*?\]\s*', '', clean)  # Remove [tags] at start
-        # Remove non-region parenthetical info (keep region patterns)
-        region_patterns = [r'\(USA?\)', r'\(US\)', r'\(Europe?\)', r'\(Japan\)', r'\(World\)', r'\(En\)', r'\(English\)']
-        has_region = any(re.search(pattern, clean, re.IGNORECASE) for pattern in region_patterns)
-        
-        if not has_region:
-            # Only remove parentheses if no region found
-            clean = re.sub(r'\s*\(.*?\)$', '', clean)
-        
-        return clean.strip()
+        try:
+            config_path = Path(__file__).parent.parent.parent / "config" / "platforms.json"
+            rom_utils = RomUtils(config_path)
+            return rom_utils.clean_rom_name_for_display(self.name)
+        except Exception as e:
+            logger.warning(f"Failed to clean ROM name using RomUtils: {e}")
+            # Fallback to basic cleaning
+            clean = re.sub(r'\.(rvz|zip|7z|iso|bin|cue|chd|gcm|nes|sfc|smc|gba|gbc|gb|nds|n64|z64|v64|vb|pce|a26|a52|a78|cdi|gdi|wux|wud|xiso)$', '', self.name, flags=re.IGNORECASE)
+            return clean.strip()
     
     def __str__(self):
         return f"{self.clean_name} ({self.region}) - {self.size}"

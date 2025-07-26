@@ -56,11 +56,12 @@ Add to `config/platforms.json`:
     "url": "https://download-site.com/path/",
     "target_folder": "subfolder_name",
     "file_extensions": [".ext1", ".ext2"],
-    "file_pattern": ".*\\.(ext1|ext2)$",
     "extract_archives": true
   }
 }
 ```
+
+Note: File patterns are automatically generated from the `file_extensions` list, so there's no need to specify `file_pattern` manually.
 
 ## Git Workflow
 

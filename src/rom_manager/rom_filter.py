@@ -11,6 +11,7 @@ from pathlib import Path
 
 # Import RomInfo from scraper module
 from src.scraper.web_scraper import RomInfo
+from src.utils.rom_utils import get_rom_utils
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,8 @@ class RomFilter:
         # Cache directory contents to avoid repeated directory scans
         self._directory_cache = {}
         self._directory_cache_time = None
+        # Get ROM utilities instance
+        self.rom_utils = get_rom_utils()
     
     def filter_and_deduplicate(self, roms: List[RomInfo]) -> List[RomInfo]:
         """Filter ROMs by removing duplicates and applying region preferences.
@@ -42,11 +45,11 @@ class RomFilter:
         """
         logger.info(f"Filtering {len(roms)} ROMs...")
         
-        # Group ROMs by their clean name
+        # Group ROMs by their canonical name
         rom_groups = defaultdict(list)
         for rom in roms:
-            clean_name = self._normalize_name(rom.clean_name)
-            rom_groups[clean_name].append(rom)
+            canonical_name = self.rom_utils.get_canonical_rom_name(rom.filename)
+            rom_groups[canonical_name].append(rom)
         
         filtered_roms = []
         
@@ -64,61 +67,6 @@ class RomFilter:
         logger.info(f"Filtered down to {len(filtered_roms)} unique ROMs")
         return sorted(filtered_roms, key=lambda x: x.clean_name.lower())
     
-    def _normalize_name(self, name: str) -> str:
-        """Normalize a ROM name for comparison purposes.
-        
-        Args:
-            name: Original ROM name.
-            
-        Returns:
-            Normalized name for grouping.
-        """
-        # Convert to lowercase
-        normalized = name.lower()
-        
-        # Remove file extensions to ensure consistent comparison
-        # Handle common ROM extensions
-        rom_extensions = ['.zip', '.7z', '.rar', '.chd', '.cdi', '.gdi', '.bin', '.cue', '.iso', 
-                         '.rvz', '.wux', '.wud', '.gba', '.gbc', '.gb', '.nes', '.sfc', '.smc', 
-                         '.n64', '.z64', '.v64', '.nds', '.vb', '.a26', '.a52', '.a78', '.pce']
-        
-        for ext in rom_extensions:
-            if normalized.endswith(ext):
-                normalized = normalized[:-len(ext)]
-                break
-        
-        # Remove everything in parentheses and brackets (regions, languages, quality indicators, etc.)
-        normalized = re.sub(r'\([^)]*\)', '', normalized)  # Remove (anything)
-        normalized = re.sub(r'\[[^\]]*\]', '', normalized)  # Remove [anything]
-        
-        # Remove numeric prefixes (common in GBA/DS collections: "0001 - Game Name" or "0001 Game Name")
-        normalized = re.sub(r'^\d{3,4}\s*-?\s*', '', normalized)
-        
-        # Normalize apostrophe possessives before removing special chars
-        normalized = re.sub(r"(\w)'s\b", r'\1s', normalized)  # "hawk's" -> "hawks"
-        
-        # Handle common name variations (specific game title fixes)
-        normalized = re.sub(r'\btony hawk\b', 'tony hawks', normalized)  # "tony hawk" -> "tony hawks"
-        
-        # Remove common variations
-        normalized = re.sub(r'\s*[-_]\s*', ' ', normalized)  # Normalize separators
-        normalized = re.sub(r'\s+', ' ', normalized)  # Normalize whitespace
-        normalized = re.sub(r'[^\w\s]', '', normalized)  # Remove special chars
-        normalized = normalized.strip()
-        
-        # Remove common suffixes that indicate versions
-        version_patterns = [
-            r'\s+v\d+(\.\d+)*$',  # Version numbers
-            r'\s+rev\s*\d+$',     # Revision numbers
-            r'\s+final$',         # Final versions
-            r'\s+repack$',        # Repacks
-            r'\s+proper$',        # Proper releases
-        ]
-        
-        for pattern in version_patterns:
-            normalized = re.sub(pattern, '', normalized, flags=re.IGNORECASE)
-        
-        return normalized
     
     def _select_best_rom(self, roms: List[RomInfo]) -> RomInfo:
         """Select the best ROM from a list of duplicates.
@@ -254,9 +202,7 @@ class RomFilter:
             # Process entries using filename-based filtering (no additional network calls)
             process_start = time.time()
             file_count = 0
-            rom_extensions = {'.rvz', '.zip', '.7z', '.iso', '.gcm', '.bin', '.cue', '.chd', 
-                             '.n64', '.z64', '.v64', '.nes', '.sfc', '.smc', '.gba', '.gbc', '.gb', 
-                             '.nds', '.vb', '.pce', '.a26', '.a52', '.a78', '.cdi', '.gdi', '.wux', '.wud'}
+            rom_extensions = self.rom_utils.get_all_rom_extensions()
             
             for i, entry in enumerate(entries):
                 if i % 100 == 0 and i > 0:  # Log progress every 100 entries
@@ -266,17 +212,15 @@ class RomFilter:
                 
                 # Filter by file extension to avoid network calls to is_file()
                 # This is much faster than checking file_path.is_file() over the network
-                has_rom_extension = any(entry_name.lower().endswith(ext) for ext in rom_extensions)
+                has_rom_extension = self.rom_utils.is_rom_file(entry_name)
                 
                 if has_rom_extension and not entry_name.startswith('.'):
                     file_count += 1
                     # Get filename without extension for precise matching
-                    stem = entry_name
-                    if '.' in stem:
-                        stem = '.'.join(stem.split('.')[:-1])  # Remove last extension
+                    stem = self.rom_utils.get_rom_stem(entry_name)
                     
-                    # Use the same normalization as _normalize_name() for consistency
-                    normalized_name = self._normalize_name(stem)
+                    # Use the same normalization as normalize_rom_name() for consistency
+                    normalized_name = self.rom_utils.normalize_rom_name(stem)
                     existing_roms.add(normalized_name)
                     
                     if len(existing_roms) <= 5:  # Log first 5 existing ROMs
@@ -314,12 +258,12 @@ class RomFilter:
         if not target_directory.exists():
             return False
         
-        normalized_name = self._normalize_name(rom.clean_name)
+        normalized_name = self.rom_utils.get_canonical_rom_name(rom.filename)
         
         try:
             for file_path in target_directory.iterdir():
                 if file_path.is_file():
-                    file_normalized = self._normalize_name(file_path.stem)
+                    file_normalized = self.rom_utils.normalize_rom_name(file_path.stem)
                     if file_normalized == normalized_name:
                         return True
         except Exception as e:
@@ -341,7 +285,7 @@ class RomFilter:
         filtered_roms = []
         
         for rom in roms:
-            normalized_name = self._normalize_name(rom.clean_name)
+            normalized_name = self.rom_utils.get_canonical_rom_name(rom.filename)
             if normalized_name not in existing_roms:
                 filtered_roms.append(rom)
             else:
@@ -372,7 +316,7 @@ class RomFilter:
             self._cache_directory = target_directory
             self._directory_cache_time = None
         
-        normalized_name = self._normalize_name(rom.clean_name)
+        normalized_name = self.rom_utils.get_canonical_rom_name(rom.filename)
         
         # Check cache first
         if normalized_name in self._installed_cache:
@@ -382,9 +326,7 @@ class RomFilter:
         logger.debug(f"Checking installed status for ROM: {rom.clean_name} (normalized: {normalized_name})")
         
         # Use a more efficient approach for network drives
-        rom_extensions = ['.rvz', '.zip', '.7z', '.iso', '.gcm', '.bin', '.cue', '.chd', 
-                         '.n64', '.z64', '.v64', '.nes', '.sfc', '.smc', '.gba', '.gbc', '.gb', 
-                         '.nds', '.vb', '.pce', '.a26', '.a52', '.a78', '.cdi', '.gdi', '.wux', '.wud']
+        rom_extensions = self.rom_utils.get_rom_extensions_list()
         
         try:
             # Try direct file matching first (much faster for network drives)
@@ -421,16 +363,15 @@ class RomFilter:
                 cache_start = time.time()
                 
                 try:
-                    rom_extensions_set = {ext.lower() for ext in rom_extensions}
-                    
                     # Scan directory once and cache all ROM file info
                     for file_path in target_directory.iterdir():
                         file_name = file_path.name
                         # Check extension first to avoid expensive network calls
-                        if file_name.lower().endswith(tuple(rom_extensions_set)):
+                        if self.rom_utils.is_rom_file(file_name):
                             try:
                                 # Get file info and cache it by normalized name
-                                file_normalized = self._normalize_name(file_path.stem)
+                                file_stem = self.rom_utils.get_rom_stem(file_name)
+                                file_normalized = self.rom_utils.normalize_rom_name(file_stem)
                                 size_bytes = file_path.stat().st_size
                                 size_str = self._format_bytes(size_bytes)
                                 file_type = file_path.suffix.upper().replace('.', '')
@@ -494,26 +435,30 @@ class RomFilter:
         logger.info(f"Scanning for installed-only ROMs in: {target_directory}")
         
         try:
-            rom_extensions = {'.rvz', '.zip', '.7z', '.iso', '.gcm', '.bin', '.cue', '.chd', 
-                             '.n64', '.z64', '.v64', '.nes', '.sfc', '.smc', '.gba', '.gbc', '.gb', 
-                             '.nds', '.vb', '.pce', '.a26', '.a52', '.a78', '.cdi', '.gdi', '.wux', '.wud'}
+            rom_extensions = self.rom_utils.get_all_rom_extensions()
             
             for file_path in target_directory.iterdir():
                 if file_path.is_file():
                     file_name = file_path.name
                     
                     # Check if it's a ROM file
-                    has_rom_extension = any(file_name.lower().endswith(ext) for ext in rom_extensions)
+                    has_rom_extension = self.rom_utils.is_rom_file(file_name)
                     
                     if has_rom_extension and not file_name.startswith('.'):
                         # Get stem (filename without extension)
-                        stem = file_path.stem
+                        stem = self.rom_utils.get_rom_stem(file_name)
                         
                         # Normalize the name same as online ROMs
-                        normalized_name = self._normalize_name(stem)
+                        normalized_name = self.rom_utils.normalize_rom_name(stem)
                         
                         # Check if this ROM is NOT available online
                         if normalized_name not in existing_online_roms:
+                            # Debug logging to help troubleshoot matching issues
+                            logger.debug(f"ROM marked as installed-only: {file_name}")
+                            logger.debug(f"  Stem: '{stem}'")
+                            logger.debug(f"  Normalized: '{normalized_name}'")
+                            logger.debug(f"  Available online ROMs (first 5): {list(existing_online_roms)[:5]}")
+                            
                             # Get file size
                             try:
                                 size_bytes = file_path.stat().st_size
@@ -528,7 +473,8 @@ class RomFilter:
                                 size=size_str
                             )
                             # Mark this as installed-only in clean_name
-                            rom_info.clean_name = stem
+                            # Use the same extension removal logic as web scraper
+                            rom_info.clean_name = self.rom_utils.clean_rom_name_for_display(file_name)
                             rom_info.is_installed_only = True
                             
                             installed_only_roms.append(rom_info)

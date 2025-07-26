@@ -49,7 +49,7 @@ def test_main_window_matching():
         for file_path in dreamcast_path.iterdir():
             if file_path.is_file() and file_path.suffix.lower() in rom_extensions:
                 # This is how main_window builds the cache (line 984)
-                normalized_name = rom_filter._normalize_name(file_path.stem)
+                normalized_name = rom_filter.rom_utils.normalize_rom_name(file_path.stem)
                 existing_roms.add(normalized_name)
         
         print(f"Found {len(existing_roms)} normalized installed ROMs")
@@ -57,7 +57,7 @@ def test_main_window_matching():
         # Test each ROM
         for rom in test_roms:
             # This is how main_window._is_rom_installed() works (line 912)
-            normalized_name = rom_filter._normalize_name(rom.clean_name)
+            normalized_name = rom_filter.rom_utils.normalize_rom_name(rom.clean_name)
             is_installed = normalized_name in existing_roms
             
             print(f"ROM: {rom.clean_name}")
@@ -143,7 +143,7 @@ def test_specific_known_matches():
         
         # Method 2: manual normalization check
         existing_roms = rom_filter.scan_existing_roms(dreamcast_path)
-        normalized_name = rom_filter._normalize_name(test_rom.clean_name)
+        normalized_name = rom_filter.rom_utils.normalize_rom_name(test_rom.clean_name)
         is_installed_method2 = normalized_name in existing_roms
         
         print(f"{i+1}. File: {file_path.name}")

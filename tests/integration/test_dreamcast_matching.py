@@ -70,7 +70,7 @@ def test_normalization_matching():
     installed_normalized = {}
     for file_path in installed_files:
         stem = file_path.stem  # Remove extension
-        normalized = rom_filter._normalize_name(stem)
+        normalized = rom_filter.rom_utils.normalize_rom_name(stem)
         installed_normalized[normalized] = file_path
         print(f"File: {file_path.name}")
         print(f"  Stem: {stem}")
@@ -83,7 +83,7 @@ def test_normalization_matching():
     unmatched_roms = []
     
     for rom in library_roms:
-        normalized = rom_filter._normalize_name(rom.filename)
+        normalized = rom_filter.rom_utils.normalize_rom_name(rom.filename)
         is_match = normalized in installed_normalized
         
         if is_match:
@@ -109,11 +109,11 @@ def test_normalization_matching():
     # Show unmatched files
     if installed_files:
         print("=== INSTALLED BUT NOT IN LIBRARY ===")
-        library_normalized = {rom_filter._normalize_name(rom.filename) for rom in library_roms}
+        library_normalized = {rom_filter.rom_utils.normalize_rom_name(rom.filename) for rom in library_roms}
         
         for file_path in installed_files:
             stem = file_path.stem
-            normalized = rom_filter._normalize_name(stem)
+            normalized = rom_filter.rom_utils.normalize_rom_name(stem)
             if normalized not in library_normalized:
                 print(f"📁 {file_path.name} (normalized: '{normalized}')")
     
@@ -204,7 +204,7 @@ if __name__ == "__main__":
     if matched < total_library:
         print(f"- Fix normalization for {total_library - matched} unmatched library ROMs")
         print("- Look for patterns in unmatched ROMs above")
-        print("- Update _normalize_name() method as needed")
+        print("- Update normalize_rom_name() method in ROM utilities as needed")
     else:
         print("- All library ROMs are matching! ✅")
     

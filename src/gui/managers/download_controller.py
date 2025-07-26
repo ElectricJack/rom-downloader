@@ -246,6 +246,13 @@ class DownloadController:
         self.update_status(f"Installation complete: {self.installation_count}/{self.total_queued_count} successful")
         self.update_copy_status("")  # Clear copy status
         
+        # Clean up temporary files after all downloads complete
+        try:
+            self.download_manager.cleanup_temp_files()
+            logger.info("Temporary files cleaned up after installation completion")
+        except Exception as e:
+            logger.warning(f"Failed to cleanup temp files after installation: {e}")
+        
         # Process batched completed ROMs and update their display status
         if hasattr(self, '_completed_roms') and self._completed_roms:
             logger.info(f"Processing {len(self._completed_roms)} completed ROMs for status updates")
@@ -325,6 +332,13 @@ class DownloadController:
             self.copy_progress_bar['value'] = 0
         self.update_status(f"Installation timeout: {self.installation_count}/{self.total_queued_count} completed")
         self.update_copy_status("")  # Clear copy status
+        
+        # Clean up temporary files after timeout as well
+        try:
+            self.download_manager.cleanup_temp_files()
+            logger.info("Temporary files cleaned up after installation timeout")
+        except Exception as e:
+            logger.warning(f"Failed to cleanup temp files after timeout: {e}")
         messagebox.showwarning("Installation Timeout", 
                               f"Installation process timed out. {self.installation_count} out of {self.total_queued_count} ROMs completed.\n"
                               "Some copies may still be in progress.")

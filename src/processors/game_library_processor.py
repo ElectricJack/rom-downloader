@@ -9,6 +9,7 @@ from pathlib import Path
 
 from src.scraper.web_scraper import RomInfo
 from src.models.game_library import ROM, Game, GameLibrary
+from src.utils.rom_utils import get_rom_utils
 
 logger = logging.getLogger(__name__)
 
@@ -22,13 +23,8 @@ class GameLibraryProcessor:
             r'\[([^\]]+)\]'  # Anything in brackets (optional)
         ]
         
-        # Common file extensions to remove
-        self.rom_extensions = {
-            '.rvz', '.zip', '.7z', '.iso', '.bin', '.cue', '.chd', '.gcm', 
-            '.nes', '.sfc', '.smc', '.gba', '.gbc', '.gb', '.nds', '.n64', 
-            '.z64', '.v64', '.vb', '.pce', '.a26', '.a52', '.a78', '.cdi', 
-            '.gdi', '.wux', '.wud', '.rom'
-        }
+        # Get ROM utilities for consistent extension handling
+        self.rom_utils = get_rom_utils()
         
         # Tags that should be prioritized (ordered by preference)
         self.priority_tags = [
@@ -45,11 +41,13 @@ class GameLibraryProcessor:
             # Convert RomInfo to ROM with tag extraction
             rom = self._create_rom_from_info(rom_info, platform)
             
-            # Create game key and find/create game
-            game_key = self.create_game_key(rom.filename)
+            # Create game key using canonical ROM name
+            rom_utils = get_rom_utils()
+            canonical_name = rom_utils.get_canonical_rom_name(rom.filename)
+            game_key = self.create_game_key(canonical_name)
             
             if game_key not in library.games:
-                display_name = self._create_display_name(rom.filename)
+                display_name = self._create_display_name(rom.clean_name)
                 game = Game(
                     key=game_key,
                     display_name=display_name,
@@ -97,11 +95,8 @@ class GameLibraryProcessor:
         tags = set()
         normalized = filename
         
-        # Remove file extension
-        for ext in self.rom_extensions:
-            if normalized.lower().endswith(ext):
-                normalized = normalized[:-len(ext)]
-                break
+        # Remove file extension using centralized ROM utilities
+        normalized = self.rom_utils.get_rom_stem(normalized)
         
         # Extract tags from parentheses and brackets
         for pattern in self.tag_patterns:
@@ -249,14 +244,12 @@ class GameLibraryProcessor:
         
         return ' | '.join(parts)
     
-    def create_game_key(self, filename: str) -> str:
-        """Create consistent game key from filename"""
-        # Extract normalized name without tags
-        _, normalized_name = self.extract_tags_and_normalize(filename)
+    def create_game_key(self, canonical_name: str) -> str:
+        """Create consistent game key from canonical ROM name"""
+        # canonical_name is already normalized and extension-free
+        key = canonical_name.lower()
         
-        # Further normalization for key generation
-        key = normalized_name.lower()
-        
+        # Apply additional game-level transformations
         # Remove common prefixes/suffixes
         prefixes_to_remove = ['the ', 'a ', 'an ']
         for prefix in prefixes_to_remove:
@@ -378,12 +371,14 @@ class GameLibraryProcessor:
             # Mark as installed since we found it on disk
             rom.set_installed(True, rom_info.name)
             
-            # Create game key and find/create game
-            game_key = self.create_game_key(rom.filename)
+            # Create game key using canonical ROM name
+            rom_utils = get_rom_utils()
+            canonical_name = rom_utils.get_canonical_rom_name(rom.filename)
+            game_key = self.create_game_key(canonical_name)
             
             if game_key not in library.games:
                 # Create new game for installed-only ROM
-                display_name = self._create_display_name(rom.filename)
+                display_name = self._create_display_name(rom.clean_name)
                 game = Game(
                     key=game_key,
                     display_name=display_name,

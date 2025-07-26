@@ -1,16 +1,18 @@
 {
   "settings": {
-    "network_drive_path": "//BATOCERA/share/roms",
-    "target_directory": "//BATOCERA/share/roms",
-    "download_delay_min": 0,
-    "download_delay_max": 1,
+    "download_delay_min": 2,
+    "download_delay_max": 5,
     "preferred_regions": [
       "USA",
       "US",
       "En",
       "English"
     ],
-    "max_concurrent_downloads": 2
+    "max_concurrent_downloads": 1,
+    "network_drive_paths": [
+      "//BATOCERA/share/roms"
+    ],
+    "current_network_drive_path": "//BATOCERA/share/roms"
   },
   "platforms": {
     "GameCube": {
@@ -22,7 +24,6 @@
         ".zip",
         ".7z"
       ],
-      "file_pattern": ".*\\.(rvz|zip|7z)$",
       "extract_archives": true
     },
     "Wii": {
@@ -34,7 +35,6 @@
         ".zip",
         ".7z"
       ],
-      "file_pattern": ".*\\.(rvz|zip|7z)$",
       "extract_archives": true
     },
     "WiiU": {
@@ -47,7 +47,6 @@
         ".zip",
         ".7z"
       ],
-      "file_pattern": ".*\\.(wux|wud|zip|7z)$",
       "extract_archives": true
     },
     "PlayStation": {
@@ -61,7 +60,6 @@
         ".zip",
         ".7z"
       ],
-      "file_pattern": ".*\\.(bin|cue|chd|zip|7z)$",
       "extract_archives": true
     },
     "PlayStation2": {
@@ -74,7 +72,6 @@
         ".zip",
         ".7z"
       ],
-      "file_pattern": ".*\\.(iso|chd|zip|7z)$",
       "extract_archives": true
     },
     "PlayStation3": {
@@ -87,7 +84,6 @@
         ".zip",
         ".7z"
       ],
-      "file_pattern": ".*\\.(iso|chd|zip|7z)$",
       "extract_archives": true
     },
     "PSP": {
@@ -100,7 +96,6 @@
         ".zip",
         ".7z"
       ],
-      "file_pattern": ".*\\.(iso|chd|zip|7z)$",
       "extract_archives": true,
       "tool_pipeline": [
         {
@@ -134,24 +129,76 @@
       "url": "https://myrient.erista.me/files/Redump/Microsoft%20-%20Xbox/",
       "target_folder": "xbox",
       "file_extensions": [
+        ".xiso",
         ".iso",
         ".zip",
         ".7z"
       ],
-      "file_pattern": ".*\\.(iso|zip|7z)$",
-      "extract_archives": true
+      "tool_pipeline": [
+        {
+          "tool_id": "zip_extractor",
+          "parameters": {
+            "remove_original": true
+          },
+          "conditions": {
+            "file_types": [
+              ".zip",
+              ".7z"
+            ]
+          }
+        },
+        {
+          "tool_id": "xbox_extractor",
+          "parameters": {
+            "extract_xiso_path": "tools/extract-xiso.exe",
+            "remove_original": true,
+            "platform": "xbox"
+          },
+          "conditions": {
+            "file_types": [
+              ".iso"
+            ]
+          }
+        }
+      ]
     },
     "Xbox360": {
       "name": "Microsoft Xbox 360",
       "url": "https://myrient.erista.me/files/Redump/Microsoft%20-%20Xbox%20360/",
       "target_folder": "xbox360",
       "file_extensions": [
+        ".xiso",
         ".iso",
         ".zip",
         ".7z"
       ],
-      "file_pattern": ".*\\.(iso|zip|7z)$",
-      "extract_archives": true
+      "tool_pipeline": [
+        {
+          "tool_id": "zip_extractor",
+          "parameters": {
+            "remove_original": true
+          },
+          "conditions": {
+            "file_types": [
+              ".zip",
+              ".7z"
+            ]
+          }
+        },
+        {
+          "tool_id": "xbox_extractor",
+          "parameters": {
+            "extract_xiso_path": "tools/extract-xiso.exe",
+            "remove_original": true,
+            "platform": "xbox"
+          },
+          "conditions": {
+            "file_types": [
+              ".iso"
+            ]
+          }
+        }
+      ]
     },
     "Dreamcast": {
       "name": "Sega Dreamcast",
@@ -164,8 +211,6 @@
         ".zip",
         ".7z"
       ],
-      "file_pattern": ".*\\.(cdi|gdi|chd|zip|7z)$",
-      "extract_archives": true,
       "tool_pipeline": [
         {
           "tool_id": "zip_extractor",
@@ -204,7 +249,6 @@
         ".zip",
         ".7z"
       ],
-      "file_pattern": ".*\\.(bin|cue|chd|zip|7z)$",
       "extract_archives": true
     },
     "SegaCD": {
@@ -218,7 +262,6 @@
         ".zip",
         ".7z"
       ],
-      "file_pattern": ".*\\.(bin|cue|chd|zip|7z)$",
       "extract_archives": true
     },
     "3DO": {
@@ -232,7 +275,6 @@
         ".zip",
         ".7z"
       ],
-      "file_pattern": ".*\\.(bin|cue|chd|zip|7z)$",
       "extract_archives": true
     },
     "CDi": {
@@ -245,7 +287,6 @@
         ".zip",
         ".7z"
       ],
-      "file_pattern": ".*\\.(bin|cue|zip|7z)$",
       "extract_archives": true
     },
     "NeoGeoCD": {
@@ -258,12 +299,11 @@
         ".zip",
         ".7z"
       ],
-      "file_pattern": ".*\\.(bin|cue|zip|7z)$",
       "extract_archives": true
     },
     "PCEngine": {
       "name": "NEC PC Engine CD / TurboGrafx CD",
-      "url": "https://myrient.erista.me/files/Redump/NEC%20-%20PC%20Engine%20CD%20-%20TurboGrafx%20CD/",
+      "url": "https://myrient.erista.me/files/Internet%20Archive/chadmaster/pcecd-chd-zstd-redump/pcecd-chd-zstd/",
       "target_folder": "pcenginecd",
       "file_extensions": [
         ".bin",
@@ -272,7 +312,6 @@
         ".zip",
         ".7z"
       ],
-      "file_pattern": ".*\\.(bin|cue|chd|zip|7z)$",
       "extract_archives": true
     },
     "PCFX": {
@@ -285,8 +324,32 @@
         ".zip",
         ".7z"
       ],
-      "file_pattern": ".*\\.(bin|cue|zip|7z)$",
-      "extract_archives": true
+      "tool_pipeline": [
+        {
+          "tool_id": "zip_extractor",
+          "parameters": {
+            "remove_original": true
+          },
+          "conditions": {
+            "file_types": [
+              ".zip",
+              ".7z"
+            ]
+          }
+        },
+        {
+          "tool_id": "chd_converter",
+          "parameters": {
+            "chdman_path": "tools/chdman.exe",
+            "remove_original": true
+          },
+          "conditions": {
+            "file_types": [
+              ".cue"
+            ]
+          }
+        }
+      ]
     },
     "AtariJaguar": {
       "name": "Atari Jaguar CD",
@@ -298,8 +361,20 @@
         ".zip",
         ".7z"
       ],
-      "file_pattern": ".*\\.(bin|cue|zip|7z)$",
-      "extract_archives": true
+      "tool_pipeline": [
+        {
+          "tool_id": "zip_extractor",
+          "parameters": {
+            "remove_original": true
+          },
+          "conditions": {
+            "file_types": [
+              ".zip",
+              ".7z"
+            ]
+          }
+        }
+      ]
     },
     "GBA": {
       "name": "Nintendo Game Boy Advance",
@@ -310,7 +385,6 @@
         ".zip",
         ".7z"
       ],
-      "file_pattern": ".*\\.(gba|zip|7z)$",
       "extract_archives": true
     },
     "GBC": {
@@ -322,7 +396,6 @@
         ".zip",
         ".7z"
       ],
-      "file_pattern": ".*\\.(gbc|zip|7z)$",
       "extract_archives": true
     },
     "GB": {
@@ -334,7 +407,6 @@
         ".zip",
         ".7z"
       ],
-      "file_pattern": ".*\\.(gb|zip|7z)$",
       "extract_archives": true
     },
     "NES": {
@@ -346,7 +418,6 @@
         ".zip",
         ".7z"
       ],
-      "file_pattern": ".*\\.(nes|zip|7z)$",
       "extract_archives": true
     },
     "SNES": {
@@ -359,7 +430,6 @@
         ".zip",
         ".7z"
       ],
-      "file_pattern": ".*\\.(sfc|smc|zip|7z)$",
       "extract_archives": true
     },
     "VirtualBoy": {
@@ -371,7 +441,6 @@
         ".zip",
         ".7z"
       ],
-      "file_pattern": ".*\\.(vb|zip|7z)$",
       "extract_archives": true
     },
     "NDS": {
@@ -383,7 +452,6 @@
         ".zip",
         ".7z"
       ],
-      "file_pattern": ".*\\.(nds|zip|7z)$",
       "extract_archives": true
     },
     "N64": {
@@ -397,12 +465,11 @@
         ".zip",
         ".7z"
       ],
-      "file_pattern": ".*\\.(n64|z64|v64|zip|7z)$",
       "extract_archives": true
     },
     "Atari2600": {
       "name": "Atari 2600",
-      "url": "https://myrient.erista.me/files/No-Intro/Atari%20-%202600/",
+      "url": "https://archive.org/download/nointro.atari-2600",
       "target_folder": "atari2600",
       "file_extensions": [
         ".a26",
@@ -410,12 +477,11 @@
         ".zip",
         ".7z"
       ],
-      "file_pattern": ".*\\.(a26|bin|zip|7z)$",
       "extract_archives": true
     },
     "Atari5200": {
       "name": "Atari 5200",
-      "url": "https://myrient.erista.me/files/No-Intro/Atari%20-%205200/",
+      "url": "https://archive.org/download/nointro.atari-5200",
       "target_folder": "atari5200",
       "file_extensions": [
         ".a52",
@@ -423,12 +489,11 @@
         ".zip",
         ".7z"
       ],
-      "file_pattern": ".*\\.(a52|bin|zip|7z)$",
       "extract_archives": true
     },
     "Atari7800": {
       "name": "Atari 7800",
-      "url": "https://myrient.erista.me/files/No-Intro/Atari%20-%207800/",
+      "url": "https://archive.org/download/nointro.atari-7800",
       "target_folder": "atari7800",
       "file_extensions": [
         ".a78",
@@ -436,18 +501,6 @@
         ".zip",
         ".7z"
       ],
-      "file_pattern": ".*\\.(a78|bin|zip|7z)$",
-      "extract_archives": true
-    },
-    "Atari7800Archive": {
-      "name": "Atari 7800 (Archive.org)",
-      "url": "https://archive.org/download/nointro.atari-7800",
-      "target_folder": "atari7800",
-      "file_extensions": [
-        ".7z",
-        ".zip"
-      ],
-      "file_pattern": ".*\\.(7z|zip)$",
       "extract_archives": true
     },
     "PCEngineHuCard": {
@@ -459,7 +512,6 @@
         ".zip",
         ".7z"
       ],
-      "file_pattern": ".*\\.(pce|zip|7z)$",
       "extract_archives": true
     },
     "BandaiPippin": {
@@ -473,7 +525,6 @@
         ".zip",
         ".7z"
       ],
-      "file_pattern": ".*\\.(bin|cue|chd|zip|7z)$",
       "extract_archives": true
     }
   }

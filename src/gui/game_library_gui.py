@@ -26,6 +26,7 @@ from src.gui.managers.search_filter_controller import SearchFilterController
 from src.gui.managers.tree_event_handler import TreeEventHandler
 from src.gui.managers.file_operations_manager import FileOperationsManager
 from src.gui.settings_window import SettingsWindow
+from src.utils.rom_utils import get_rom_utils
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,7 @@ class GameLibraryGUI:
         self.search_filter_controller = SearchFilterController(self)
         self.tree_event_handler = TreeEventHandler(self)
         self.file_operations_manager = FileOperationsManager(self)
+        self.rom_utils = get_rom_utils()
         
         # GUI state
         self.current_platform = tk.StringVar()
@@ -327,24 +329,90 @@ class GameLibraryGUI:
     
     def _update_context_menu_for_bulk_selection(self, selected_items: list):
         """Update context menu for multiple item selection"""
-        # For bulk selection, disable queue operations and reveal
-        self.context_menu.entryconfig(self.add_to_queue_index, state="disabled")
-        self.context_menu.entryconfig(self.remove_from_queue_index, state="disabled")
-        self.context_menu.entryconfig(self.add_all_variants_index, state="disabled")
-        self.context_menu.entryconfig(self.remove_all_variants_index, state="disabled")
+        # Disable reveal for bulk selection (only works for single items)
         self.context_menu.entryconfig(self.reveal_in_explorer_index, state="disabled")
         self._reveal_target_info = None
         
-        # Check if any selected items have installed ROMs
-        installed_games_count = self._count_installed_games_in_selection(selected_items)
+        # Check queue operations and installation status for bulk selection
+        platform = self.get_current_platform_key()
+        if not platform:
+            # If no platform, disable everything
+            self.context_menu.entryconfig(self.add_to_queue_index, state="disabled")
+            self.context_menu.entryconfig(self.remove_from_queue_index, state="disabled")
+            self.context_menu.entryconfig(self.add_all_variants_index, state="disabled")
+            self.context_menu.entryconfig(self.remove_all_variants_index, state="disabled")
+            self.context_menu.entryconfig(self.uninstall_index, label="Uninstall", state="disabled")
+            return
         
-        if installed_games_count > 0:
-            # Enable bulk uninstall with updated label
+        # Analyze selected items for queue and uninstall capabilities
+        queueable_games = 0
+        removable_games = 0
+        installed_count = 0
+        
+        for item_id in selected_items:
+            try:
+                item_details = self.tree_event_handler.get_item_details(item_id)
+                item_type = item_details.get('item_type')
+                game_key = item_details.get('game_key')
+                
+                if item_type == 'game' and game_key:
+                    # Check queue status for this game
+                    is_queued = self.queue_manager.is_game_queued(game_key, platform)
+                    
+                    # Find the game to check if it has queueable variants
+                    game = None
+                    for g in self.current_games:
+                        if g.key == game_key:
+                            game = g
+                            break
+                    
+                    if game:
+                        # Check if game has downloadable variants
+                        variants = game.get_variants_for_platform(platform)
+                        queueable_variants = [
+                            rom for rom in variants 
+                            if not rom.is_installed_only and rom.is_installed() is not True
+                        ]
+                        
+                        # Can add to queue if not queued and has queueable variants
+                        if not is_queued and len(queueable_variants) > 0:
+                            queueable_games += 1
+                        
+                        # Can remove from queue if currently queued
+                        if is_queued:
+                            removable_games += 1
+                        
+                        # Check if game has installed variants for uninstall
+                        installed_variants = self._get_installed_variants_info(item_id)
+                        if installed_variants:
+                            installed_count += 1
+                
+                elif item_type == 'variant':
+                    # For individual variants, check installation status
+                    installed_status = self.game_tree.set(item_id, 'installed')
+                    if installed_status == "✓":
+                        installed_count += 1
+                        
+            except Exception as e:
+                logger.error(f"Error analyzing item {item_id}: {e}")
+                continue
+        
+        # Update queue operation states
+        self.context_menu.entryconfig(self.add_to_queue_index, 
+                                    state="normal" if queueable_games > 0 else "disabled")
+        self.context_menu.entryconfig(self.remove_from_queue_index, 
+                                    state="normal" if removable_games > 0 else "disabled")
+        self.context_menu.entryconfig(self.add_all_variants_index, 
+                                    state="normal" if queueable_games > 0 else "disabled")
+        self.context_menu.entryconfig(self.remove_all_variants_index, 
+                                    state="normal" if removable_games > 0 else "disabled")
+        
+        # Update uninstall state
+        if installed_count > 0:
             self.context_menu.entryconfig(self.uninstall_index, 
-                                        label=f"Uninstall ({installed_games_count} installed games)", 
+                                        label=f"Uninstall ({installed_count} installed items)", 
                                         state="normal")
         else:
-            # No installed games in selection
             self.context_menu.entryconfig(self.uninstall_index, 
                                         label="Uninstall", 
                                         state="disabled")
@@ -363,11 +431,7 @@ class GameLibraryGUI:
                     installed_variants = self._get_installed_variants_info(item_id)
                     if installed_variants:
                         installed_count += 1
-                elif item_type == 'variant':
-                    # Check if this specific variant is installed
-                    installed_status = self.game_tree.set(item_id, 'installed')
-                    if installed_status == "✓":
-                        installed_count += 1
+                # Note: Don't count individual variants as "games" for the counter
                         
             except Exception as e:
                 logger.error(f"Error checking installation status for {item_id}: {e}")
@@ -846,10 +910,10 @@ class GameLibraryGUI:
             game_names = []
             for variant_info in variants_to_uninstall:
                 game_key = variant_info.get('game_key')
-                # Find the game to get its name
+                # Find the game to get its display name
                 for game in self.current_games:
                     if game.key == game_key:
-                        game_names.append(game.name)
+                        game_names.append(game.display_name)
                         break
             
             unique_games = list(set(game_names))
@@ -1506,7 +1570,16 @@ class GameLibraryGUI:
                 target_directory = self.config_manager.get_target_directory(platform)
                 if target_directory:
                     # Get normalized names of online ROMs to exclude them
-                    online_rom_names = {self.rom_filter._normalize_name(rom.clean_name) for rom in roms}
+                    online_rom_names = {self.rom_utils.normalize_rom_name(rom.clean_name) for rom in roms}
+                    
+                    # Debug logging to help troubleshoot matching issues
+                    logger.debug(f"Platform {platform}: {len(roms)} online ROMs, {len(online_rom_names)} unique normalized names")
+                    if roms:
+                        sample_roms = roms[:3]
+                        for rom in sample_roms:
+                            normalized = self.rom_utils.normalize_rom_name(rom.clean_name)
+                            logger.debug(f"  Online ROM: '{rom.clean_name}' -> '{normalized}'")
+                    logger.debug(f"  Sample normalized names: {list(online_rom_names)[:5]}")
                     
                     # Scan for installed-only ROMs
                     installed_only_roms = self.rom_filter.scan_installed_only_roms(

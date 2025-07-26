@@ -18,6 +18,7 @@ from typing import Dict, Set, List, Optional, Callable
 from src.models.game_library import Game, ROM
 from src.scraper.web_scraper import RomInfo
 from src.rom_manager.rom_filter import RomFilter
+from src.utils.rom_utils import get_rom_utils
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,8 @@ class InstallationStatusManager:
         # New: Efficient filename lookup maps
         self._normalized_to_actual: Dict[str, str] = {}  # normalized_name -> actual_filename
         self._actual_files_cache: Dict[str, str] = {}    # actual_filename.lower() -> actual_filename
+        # ROM utilities for consistent extension handling
+        self.rom_utils = get_rom_utils()
         
     @property
     def config_manager(self):
@@ -134,10 +137,9 @@ class InstallationStatusManager:
         Returns:
             Tuple of (is_found: bool, installed_filename: Optional[str])
         """
-        # Get the stem (filename without extension)
-        stem = rom_filename
-        if '.' in stem:
-            stem = '.'.join(stem.split('.')[:-1])
+        # Get the stem (filename without extension) using centralized method
+        rom_utils = get_rom_utils()
+        stem = rom_utils.get_rom_stem(rom_filename)
         
         # Try precise matching strategies that preserve region/revision info
         candidates = [
@@ -163,27 +165,10 @@ class InstallationStatusManager:
     def _precise_normalize_name(self, name: str) -> str:
         """Normalize ROM name while preserving region and revision information.
         
-        Unlike _normalize_name(), this keeps parenthetical content that's important
+        Unlike normalize_rom_name(), this keeps parenthetical content that's important
         for distinguishing between ROM variants.
         """
-        normalized = name.lower().strip()
-        
-        # Remove file extensions
-        rom_extensions = ['.zip', '.7z', '.rar', '.chd', '.cdi', '.gdi', '.bin', '.cue', '.iso', 
-                         '.rvz', '.wux', '.wud', '.gba', '.gbc', '.gb', '.nes', '.sfc', '.smc', 
-                         '.n64', '.z64', '.v64', '.nds', '.vb', '.a26', '.a52', '.a78', '.pce']
-        
-        for ext in rom_extensions:
-            if normalized.endswith(ext):
-                normalized = normalized[:-len(ext)]
-                break
-        
-        # Normalize whitespace and separators but KEEP parenthetical content
-        normalized = re.sub(r'\s*[-_]\s*', ' ', normalized)  # Normalize separators  
-        normalized = re.sub(r'\s+', ' ', normalized)  # Normalize multiple spaces
-        normalized = normalized.strip()
-        
-        return normalized
+        return self.rom_utils.precise_normalize_rom_name(name)
     
     def _build_filename_cache(self, target_dir: Path):
         """Build efficient lookup maps by scanning directory once"""
@@ -191,19 +176,16 @@ class InstallationStatusManager:
         self._actual_files_cache.clear()
         
         try:
-            rom_extensions = {'.rvz', '.zip', '.7z', '.iso', '.gcm', '.bin', '.cue', '.chd', 
-                             '.n64', '.z64', '.v64', '.nes', '.sfc', '.smc', '.gba', '.gbc', '.gb', 
-                             '.nds', '.vb', '.pce', '.a26', '.a52', '.a78', '.cdi', '.gdi', '.wux', '.wud'}
             
             logger.info(f"Building filename cache from {target_dir}")
             file_count = 0
             
             # Single directory scan to build all lookup maps
             for file_path in target_dir.iterdir():
-                if file_path.is_file() and any(file_path.name.lower().endswith(ext) for ext in rom_extensions):
+                if file_path.is_file() and self.rom_utils.is_rom_file(file_path.name):
                     file_count += 1
                     actual_filename = file_path.name
-                    file_stem = file_path.stem
+                    file_stem = self.rom_utils.get_rom_stem(actual_filename)
                     
                     # Build precise normalized name lookup (preserves regions/revisions)
                     file_normalized = self._precise_normalize_name(file_stem)

@@ -138,7 +138,6 @@ class AppDirectories:
                     "url": "https://myrient.erista.me/files/Redump/Nintendo%20-%20GameCube%20-%20NKit%20RVZ%20[zstd-19-128k]/",
                     "target_folder": "gamecube",
                     "file_extensions": [".rvz", ".zip", ".7z"],
-                    "file_pattern": r".*\.(rvz|zip|7z)$",
                     "extract_archives": True
                 }
             }

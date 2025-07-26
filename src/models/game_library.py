@@ -33,22 +33,16 @@ class ROM:
     
     def _generate_clean_name(self) -> str:
         """Generate a clean name from filename for display purposes"""
-        import re
-        
-        # Remove file extensions (all supported ROM and archive formats)
-        clean = re.sub(r'\.(rvz|zip|7z|iso|bin|cue|chd|gcm|nes|sfc|smc|gba|gbc|gb|nds|n64|z64|v64|vb|pce|a26|a52|a78|cdi|gdi|wux|wud)$', '', self.filename, flags=re.IGNORECASE)
-        
-        # Remove common prefixes/suffixes but keep region info
-        clean = re.sub(r'^\[.*?\]\s*', '', clean)  # Remove [tags] at start
-        # Remove non-region parenthetical info (keep region patterns)
-        region_patterns = [r'\(USA?\)', r'\(US\)', r'\(Europe?\)', r'\(Japan\)', r'\(World\)', r'\(En\)', r'\(English\)']
-        has_region = any(re.search(pattern, clean, re.IGNORECASE) for pattern in region_patterns)
-        
-        if not has_region:
-            # Only remove parentheses if no region found
-            clean = re.sub(r'\s*\(.*?\)$', '', clean)
-        
-        return clean.strip()
+        try:
+            # Import here to avoid circular imports
+            from ..utils.rom_utils import get_rom_utils
+            rom_utils = get_rom_utils()
+            return rom_utils.clean_rom_name_for_display(self.filename)
+        except Exception:
+            # Fallback to basic cleaning if ROM utils fails
+            import re
+            clean = re.sub(r'\.(rvz|zip|7z|iso|bin|cue|chd|gcm|nes|sfc|smc|gba|gbc|gb|nds|n64|z64|v64|vb|pce|a26|a52|a78|cdi|gdi|wux|wud|xiso)$', '', self.filename, flags=re.IGNORECASE)
+            return clean.strip()
     
     @property
     def size_bytes(self) -> int:
@@ -97,6 +91,23 @@ class ROM:
         """Set installation status by setting the actual installed filename"""
         if installed and installed_filename:
             self._installed_filename = installed_filename
+            
+            # If the installed filename has a different extension than the original ROM,
+            # update the clean_name to reflect the actual installed file
+            if installed_filename != self.filename:
+                try:
+                    # Import here to avoid circular imports
+                    from pathlib import Path
+                    from ..utils.rom_utils import RomUtils
+                    config_path = Path(__file__).parent.parent.parent / "config" / "platforms.json"
+                    rom_utils = RomUtils(config_path)
+                    
+                    # Update clean_name based on the actual installed filename
+                    self.clean_name = rom_utils.clean_rom_name_for_display(installed_filename)
+                except Exception:
+                    # If dynamic cleaning fails, keep original clean_name
+                    pass
+                    
         elif installed and not installed_filename:
             # Installed but no filename provided - this shouldn't happen in new code
             # but maintain backward compatibility

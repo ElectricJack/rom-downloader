@@ -148,11 +148,11 @@ class RomFilter:
             extract_archives: Whether archives are extracted for this platform.
             
         Returns:
-            Set of normalized ROM names that already exist.
+            Set of canonical ROM names that already exist.
         """
         import time
         start_time = time.time()
-        existing_roms = set()
+        canonical_names = set()
         
         logger.info(f"Scanning for existing ROMs in: {target_directory}")
         
@@ -165,10 +165,10 @@ class RomFilter:
             
             if not path_exists:
                 logger.info(f"Target directory does not exist: {target_directory}")
-                return existing_roms
+                return canonical_names
         except Exception as e:
             logger.error(f"Error checking if target directory exists: {e}")
-            return existing_roms
+            return canonical_names
         
         # Check if it's a directory
         try:
@@ -179,10 +179,10 @@ class RomFilter:
             
             if not is_directory:
                 logger.warning(f"Target path is not a directory: {target_directory}")
-                return existing_roms
+                return canonical_names
         except Exception as e:
             logger.error(f"Error checking if target path is directory: {e}")
-            return existing_roms
+            return canonical_names
         
         # Try to list directory contents with optimized network scanning
         try:
@@ -197,41 +197,35 @@ class RomFilter:
                 logger.info(f"Fetched {len(entries)} directory entries in {fetch_time:.2f}s")
             except Exception as e:
                 logger.error(f"Failed to fetch directory entries: {e}")
-                return existing_roms
+                return canonical_names
             
             # Process entries using filename-based filtering (no additional network calls)
             process_start = time.time()
             file_count = 0
-            rom_extensions = self.rom_utils.get_all_rom_extensions()
             
             for i, entry in enumerate(entries):
                 if i % 100 == 0 and i > 0:  # Log progress every 100 entries
-                    logger.info(f"Processed {i}/{len(entries)} entries, found {len(existing_roms)} ROMs so far...")
+                    logger.info(f"Processed {i}/{len(entries)} entries, found {len(canonical_names)} ROMs so far...")
                 
                 entry_name = entry.name
                 
                 # Filter by file extension to avoid network calls to is_file()
                 # This is much faster than checking file_path.is_file() over the network
-                has_rom_extension = self.rom_utils.is_rom_file(entry_name)
-                
-                if has_rom_extension and not entry_name.startswith('.'):
+                if self.rom_utils.is_rom_file(entry_name) and not entry_name.startswith('.'):
                     file_count += 1
-                    # Get filename without extension for precise matching
-                    stem = self.rom_utils.get_rom_stem(entry_name)
+                    # Get canonical name using the unified method
+                    canonical_name = self.rom_utils.get_canonical_rom_name(entry_name)
+                    canonical_names.add(canonical_name)
                     
-                    # Use the same normalization as normalize_rom_name() for consistency
-                    normalized_name = self.rom_utils.normalize_rom_name(stem)
-                    existing_roms.add(normalized_name)
-                    
-                    if len(existing_roms) <= 5:  # Log first 5 existing ROMs
-                        logger.info(f"Found existing ROM: {entry_name}")
-                    elif len(existing_roms) % 50 == 0:  # Log progress every 50 ROMs
-                        logger.info(f"Found {len(existing_roms)} existing ROMs so far...")
+                    if len(canonical_names) <= 5:  # Log first 5 existing ROMs
+                        logger.info(f"Found existing ROM: {entry_name} -> {canonical_name}")
+                    elif len(canonical_names) % 50 == 0:  # Log progress every 50 ROMs
+                        logger.info(f"Found {len(canonical_names)} existing ROMs so far...")
             
             process_time = time.time() - process_start
             total_time = time.time() - iterdir_start
             logger.info(f"Entry processing completed in {process_time:.2f}s")
-            logger.info(f"Total scan time: {total_time:.2f}s, processed {len(entries)} entries, found {len(existing_roms)} ROM files")
+            logger.info(f"Total scan time: {total_time:.2f}s, processed {len(entries)} entries, found {len(canonical_names)} ROM files")
             
         except PermissionError as e:
             logger.error(f"Permission denied accessing {target_directory}: {e}")
@@ -242,10 +236,10 @@ class RomFilter:
         
         total_time = time.time() - start_time
         logger.info(f"Existing ROM scan completed in {total_time:.2f}s")
-        return existing_roms
+        return canonical_names
     
     def is_rom_installed(self, rom: RomInfo, target_directory: Path, _extract_archives: bool = False) -> bool:
-        """Check if a ROM is already installed, considering extraction settings.
+        """Check if a ROM is already installed using canonical name matching.
         
         Args:
             rom: ROM information object.
@@ -258,13 +252,15 @@ class RomFilter:
         if not target_directory.exists():
             return False
         
-        normalized_name = self.rom_utils.get_canonical_rom_name(rom.filename)
+        # Get the canonical name for this ROM
+        rom_canonical_name = self.rom_utils.get_canonical_rom_name(rom.filename)
         
         try:
             for file_path in target_directory.iterdir():
-                if file_path.is_file():
-                    file_normalized = self.rom_utils.normalize_rom_name(file_path.stem)
-                    if file_normalized == normalized_name:
+                if file_path.is_file() and self.rom_utils.is_rom_file(file_path.name):
+                    # Get canonical name of the installed file
+                    file_canonical_name = self.rom_utils.get_canonical_rom_name(file_path.name)
+                    if file_canonical_name == rom_canonical_name:
                         return True
         except Exception as e:
             logger.error(f"Error checking if ROM is installed: {e}")
@@ -445,11 +441,8 @@ class RomFilter:
                     has_rom_extension = self.rom_utils.is_rom_file(file_name)
                     
                     if has_rom_extension and not file_name.startswith('.'):
-                        # Get stem (filename without extension)
-                        stem = self.rom_utils.get_rom_stem(file_name)
-                        
-                        # Normalize the name same as online ROMs
-                        normalized_name = self.rom_utils.normalize_rom_name(stem)
+                        # Get canonical name using the unified method
+                        normalized_name = self.rom_utils.get_canonical_rom_name(file_name)
                         
                         # Check if this ROM is NOT available online
                         if normalized_name not in existing_online_roms:

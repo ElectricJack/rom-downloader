@@ -286,15 +286,32 @@ class DistributedStateManager:
         }
     
     def _serialize_rom(self, rom: ROM) -> Dict[str, Any]:
-        """Serialize a ROM object including private fields"""
-        rom_dict = asdict(rom)
-        # Include the installed filename in serialization
-        rom_dict['_installed_filename'] = rom._installed_filename
+        """Serialize ROM with canonical name as primary key"""
+        rom_dict = {
+            'canonical_name': rom.canonical_name,
+            'original_filename': rom.original_filename,
+            'display_name': rom.display_name,
+            'url': rom.url,
+            'size': rom.size,
+            'file_type': rom.file_type,
+            'tags': list(rom.tags),  # Convert set to list for JSON
+            'platform': rom.platform,
+            'game_key': rom.game_key,
+            '_installed_filename': rom._installed_filename,
+            'is_installed_only': rom.is_installed_only
+        }
         return rom_dict
     
     def _deserialize_platform_library(self, data: Dict[str, Any]) -> GameLibrary:
-        """Deserialize platform-specific game library"""
+        """Deserialize platform-specific game library with backward compatibility"""
         library = GameLibrary()
+        
+        # Check if this is a legacy format that needs migration
+        version = data.get('version', '2.0')  # Default to legacy if no version
+        needs_migration = version < '3.0'
+        
+        if needs_migration:
+            logger.info(f"Migrating platform library from version {version} to 3.0")
         
         # Reconstruct games
         games_data = data.get('games', {})
@@ -306,6 +323,11 @@ class DistributedStateManager:
         platform = data.get('platform', 'unknown')
         tags = data.get('tag_registry', [])
         library.tag_registry[platform] = set(tags)
+        
+        # If we migrated, mark for re-saving with new format
+        if needs_migration:
+            logger.info(f"Migration complete for platform {platform}. Will save in new format.")
+            self.platform_dirty = True
         
         return library
     
@@ -324,10 +346,22 @@ class DistributedStateManager:
             if 'tags' in rom_data:
                 rom_data['tags'] = set(rom_data['tags'])
             
+            # Handle backward compatibility for legacy format
+            if 'canonical_name' not in rom_data:
+                # Legacy format - derive canonical_name from filename
+                from src.utils.rom_utils import get_rom_utils
+                rom_utils = get_rom_utils()
+                filename = rom_data.get('filename', rom_data.get('original_filename', ''))
+                rom_data['canonical_name'] = rom_utils.get_canonical_rom_name(filename)
+                rom_data['original_filename'] = filename
+                rom_data['display_name'] = rom_data.get('clean_name', rom_utils.clean_rom_name_for_display(filename))
+            
             # Remove init=False fields that shouldn't be passed to constructor
             installed_filename = rom_data.pop('_installed_filename', None)
-            # Also remove legacy _is_installed field if it exists
+            # Also remove legacy fields if they exist
             rom_data.pop('_is_installed', None)
+            rom_data.pop('filename', None)  # Remove legacy filename field
+            rom_data.pop('clean_name', None)  # Remove legacy clean_name field
             
             rom = ROM(**rom_data)
             

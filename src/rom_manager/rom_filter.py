@@ -472,9 +472,6 @@ class RomFilter:
                                 url="",  # No URL since it's not available online
                                 size=size_str
                             )
-                            # Mark this as installed-only in clean_name
-                            # Use the same extension removal logic as web scraper
-                            rom_info.clean_name = self.rom_utils.clean_rom_name_for_display(file_name)
                             rom_info.is_installed_only = True
                             
                             installed_only_roms.append(rom_info)

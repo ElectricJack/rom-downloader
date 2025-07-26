@@ -42,15 +42,14 @@ class GameLibraryProcessor:
             rom = self._create_rom_from_info(rom_info, platform)
             
             # Create game key using canonical ROM name
-            rom_utils = get_rom_utils()
-            canonical_name = rom_utils.get_canonical_rom_name(rom.filename)
-            game_key = self.create_game_key(canonical_name)
+            game_key = self.create_game_key(rom.canonical_name)
             
             if game_key not in library.games:
                 display_name = self._create_display_name(rom.clean_name)
                 game = Game(
                     key=game_key,
                     display_name=display_name,
+                    canonical_names=set(),
                     platforms={platform}
                 )
                 library.add_game(game)
@@ -80,13 +79,14 @@ class GameLibraryProcessor:
             logger.info(f"Creating installed-only ROM: {rom_info.name}")
         
         return ROM(
-            filename=rom_info.name,
+            canonical_name=rom_info.canonical_name,
+            original_filename=rom_info.original_filename,
+            display_name=rom_info.display_name,
             url=rom_info.url,
             size=rom_info.size,
             file_type=rom_info.file_type,
             tags=tags,
             platform=platform,
-            clean_name=rom_info.clean_name,
             is_installed_only=is_installed_only
         )
     
@@ -372,9 +372,7 @@ class GameLibraryProcessor:
             rom.set_installed(True, rom_info.name)
             
             # Create game key using canonical ROM name
-            rom_utils = get_rom_utils()
-            canonical_name = rom_utils.get_canonical_rom_name(rom.filename)
-            game_key = self.create_game_key(canonical_name)
+            game_key = self.create_game_key(rom.canonical_name)
             
             if game_key not in library.games:
                 # Create new game for installed-only ROM
@@ -382,6 +380,7 @@ class GameLibraryProcessor:
                 game = Game(
                     key=game_key,
                     display_name=display_name,
+                    canonical_names=set(),
                     platforms={platform}
                 )
                 library.add_game(game)

@@ -18,14 +18,19 @@ class RomInfo:
     """Represents information about a ROM file."""
     
     def __init__(self, name: str, url: str, size: str = "", file_type: str = "", is_folder: bool = False):
-        self.name = unquote(name)
+        self.original_filename = unquote(name)
+        self.canonical_name = self._get_canonical_name()  # New!
+        self.display_name = self._get_display_name()      # Derived from canonical
         self.url = url
         self.size = size
         self.file_type = file_type
         self.is_folder = is_folder
         self.region = self._extract_region()
-        self.clean_name = self._clean_name()
         self.is_installed_only = False  # Flag to mark ROMs that are only available locally
+        
+        # Backward compatibility properties
+        self.name = self.original_filename
+        self.clean_name = self.display_name
     
     def _extract_region(self) -> str:
         """Extract region information from the ROM name."""
@@ -41,21 +46,34 @@ class RomInfo:
         }
         
         for pattern, region in region_patterns.items():
-            if re.search(pattern, self.name, re.IGNORECASE):
+            if re.search(pattern, self.original_filename, re.IGNORECASE):
                 return region
         
         return 'Unknown'
     
-    def _clean_name(self) -> str:
-        """Clean the ROM name for display purposes."""
+    def _get_canonical_name(self) -> str:
+        """Get canonical ROM name - the normalized form for all operations."""
         try:
             config_path = Path(__file__).parent.parent.parent / "config" / "platforms.json"
             rom_utils = RomUtils(config_path)
-            return rom_utils.clean_rom_name_for_display(self.name)
+            return rom_utils.get_canonical_rom_name(self.original_filename)
+        except Exception as e:
+            logger.warning(f"Failed to get canonical ROM name using RomUtils: {e}")
+            # Fallback to basic normalization
+            from ..utils.rom_utils import get_rom_utils
+            rom_utils = get_rom_utils()
+            return rom_utils.normalize_rom_name(rom_utils.get_rom_stem(self.original_filename))
+    
+    def _get_display_name(self) -> str:
+        """Get display name for UI - derived from canonical name."""
+        try:
+            config_path = Path(__file__).parent.parent.parent / "config" / "platforms.json"
+            rom_utils = RomUtils(config_path)
+            return rom_utils.clean_rom_name_for_display(self.original_filename)
         except Exception as e:
             logger.warning(f"Failed to clean ROM name using RomUtils: {e}")
             # Fallback to basic cleaning
-            clean = re.sub(r'\.(rvz|zip|7z|iso|bin|cue|chd|gcm|nes|sfc|smc|gba|gbc|gb|nds|n64|z64|v64|vb|pce|a26|a52|a78|cdi|gdi|wux|wud|xiso)$', '', self.name, flags=re.IGNORECASE)
+            clean = re.sub(r'\.(rvz|zip|7z|iso|bin|cue|chd|gcm|nes|sfc|smc|gba|gbc|gb|nds|n64|z64|v64|vb|pce|a26|a52|a78|cdi|gdi|wux|wud|xiso)$', '', self.original_filename, flags=re.IGNORECASE)
             return clean.strip()
     
     def __str__(self):

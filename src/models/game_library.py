@@ -11,38 +11,33 @@ from pathlib import Path
 @dataclass
 class ROM:
     """Represents a specific ROM variant"""
-    filename: str
+    canonical_name: str              # Normalized name - the primary key
+    original_filename: str           # Original filename for reference
+    display_name: str               # Pretty name for UI (derived from canonical)
     url: str
     size: str
     file_type: str
     tags: Set[str] = field(default_factory=set)
     platform: str = ""
     game_key: str = ""
-    clean_name: str = ""  # Cleaned filename for display
     _installed_filename: Optional[str] = field(default=None, init=False)  # Actual installed filename on disk
     is_installed_only: bool = False  # True if ROM is only available locally, not online
+    
+    @property
+    def filename(self) -> str:
+        """For backward compatibility"""
+        return self.original_filename
+    
+    @property
+    def clean_name(self) -> str:
+        """For backward compatibility"""
+        return self.display_name
     
     def __post_init__(self):
         """Ensure tags is always a set"""
         if isinstance(self.tags, (list, tuple)):
             self.tags = set(self.tags)
-        
-        # Generate clean_name if not provided
-        if not self.clean_name:
-            self.clean_name = self._generate_clean_name()
     
-    def _generate_clean_name(self) -> str:
-        """Generate a clean name from filename for display purposes"""
-        try:
-            # Import here to avoid circular imports
-            from ..utils.rom_utils import get_rom_utils
-            rom_utils = get_rom_utils()
-            return rom_utils.clean_rom_name_for_display(self.filename)
-        except Exception:
-            # Fallback to basic cleaning if ROM utils fails
-            import re
-            clean = re.sub(r'\.(rvz|zip|7z|iso|bin|cue|chd|gcm|nes|sfc|smc|gba|gbc|gb|nds|n64|z64|v64|vb|pce|a26|a52|a78|cdi|gdi|wux|wud|xiso)$', '', self.filename, flags=re.IGNORECASE)
-            return clean.strip()
     
     @property
     def size_bytes(self) -> int:
@@ -93,8 +88,8 @@ class ROM:
             self._installed_filename = installed_filename
             
             # If the installed filename has a different extension than the original ROM,
-            # update the clean_name to reflect the actual installed file
-            if installed_filename != self.filename:
+            # update the display_name to reflect the actual installed file
+            if installed_filename != self.original_filename:
                 try:
                     # Import here to avoid circular imports
                     from pathlib import Path
@@ -102,10 +97,10 @@ class ROM:
                     config_path = Path(__file__).parent.parent.parent / "config" / "platforms.json"
                     rom_utils = RomUtils(config_path)
                     
-                    # Update clean_name based on the actual installed filename
-                    self.clean_name = rom_utils.clean_rom_name_for_display(installed_filename)
+                    # Update display_name based on the actual installed filename
+                    self.display_name = rom_utils.clean_rom_name_for_display(installed_filename)
                 except Exception:
-                    # If dynamic cleaning fails, keep original clean_name
+                    # If dynamic cleaning fails, keep original display_name
                     pass
                     
         elif installed and not installed_filename:
@@ -128,21 +123,25 @@ class ROM:
 @dataclass
 class Game:
     """Represents a unique game with multiple ROM variants"""
-    key: str
-    display_name: str
+    key: str                        # Generated from canonical ROM name
+    display_name: str              # Pretty name for UI
+    canonical_names: Set[str] = field(default_factory=set)       # All canonical names for this game
     platforms: Set[str] = field(default_factory=set)
     variants: Dict[str, ROM] = field(default_factory=dict)
     
     def __post_init__(self):
-        """Ensure platforms is always a set"""
+        """Ensure platforms and canonical_names are always sets"""
         if isinstance(self.platforms, (list, tuple)):
             self.platforms = set(self.platforms)
+        if isinstance(self.canonical_names, (list, tuple)):
+            self.canonical_names = set(self.canonical_names)
     
     def add_variant(self, rom: ROM):
         """Add a ROM variant to this game"""
         variant_key = rom.create_variant_key()
         self.variants[variant_key] = rom
         self.platforms.add(rom.platform)
+        self.canonical_names.add(rom.canonical_name)
         rom.game_key = self.key
     
     def get_variants_for_platform(self, platform: str) -> List[ROM]:

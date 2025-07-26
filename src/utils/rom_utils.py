@@ -305,23 +305,6 @@ class RomUtils:
         self._extensions_cache = None
         self.get_all_rom_extensions.cache_clear()
     
-    def get_normalized_stem(self, filename: str) -> str:
-        """Get normalized stem - the canonical form for all ROM operations.
-        
-        This is the ONLY method that should be used for removing extensions
-        and normalizing ROM names for identification purposes.
-        
-        Args:
-            filename: Original ROM filename
-            
-        Returns:
-            Normalized name without extension for ROM identification
-        """
-        # Remove extension using comprehensive extension list
-        stem = self.get_rom_stem(filename)
-        # Apply consistent normalization
-        return self.normalize_rom_name(stem)
-    
     def get_canonical_rom_name(self, filename: str) -> str:
         """Get the canonical ROM name - the key for all operations.
         
@@ -339,48 +322,6 @@ class RomUtils:
         """
         stem = self.get_rom_stem(filename)
         return self.normalize_rom_name(stem)
-
-    def clean_rom_name_for_display(self, filename: str) -> str:
-        """Clean ROM filename for display by removing extensions and formatting.
-        
-        Uses the same logic as the web scraper's _clean_name method.
-        
-        Args:
-            filename: The ROM filename to clean
-            
-        Returns:
-            Clean display name with extensions removed
-        """
-        import re
-        
-        try:
-            # Get all ROM extensions from platform configuration
-            rom_extensions = self.get_all_rom_extensions()
-            
-            # Build regex pattern from extensions (remove dots and escape special chars)
-            extensions_list = [ext.lstrip('.').replace('.', r'\.') for ext in rom_extensions]
-            pattern = r'\.(' + '|'.join(extensions_list) + r')$'
-            
-            # Remove file extensions
-            clean = re.sub(pattern, '', filename, flags=re.IGNORECASE)
-            
-        except Exception as e:
-            logger.warning(f"Failed to load ROM extensions dynamically in clean_rom_name_for_display: {e}")
-            # Fallback to hardcoded pattern if ROM utils fails
-            clean = re.sub(r'\.(rvz|zip|7z|iso|bin|cue|chd|gcm|nes|sfc|smc|gba|gbc|gb|nds|n64|z64|v64|vb|pce|a26|a52|a78|cdi|gdi|wux|wud|xiso)$', '', filename, flags=re.IGNORECASE)
-        
-        # Remove common prefixes/suffixes but keep region info (same as web scraper)
-        clean = re.sub(r'^\[.*?\]\s*', '', clean)  # Remove [tags] at start
-        
-        # Remove non-region parenthetical info (keep region patterns)
-        region_patterns = [r'\(USA?\)', r'\(US\)', r'\(Europe?\)', r'\(Japan\)', r'\(World\)', r'\(En\)', r'\(English\)']
-        has_region = any(re.search(pattern, clean, re.IGNORECASE) for pattern in region_patterns)
-        
-        if not has_region:
-            # Only remove parentheses if no region found
-            clean = re.sub(r'\s*\(.*?\)$', '', clean)
-        
-        return clean.strip()
 
 
 # Global instance for easy access

@@ -68,9 +68,11 @@ class RomInfo:
         try:
             from ..utils.rom_utils import get_rom_utils
             rom_utils = get_rom_utils()
-            return rom_utils.clean_rom_name_for_display(self.original_filename)
+            # Get the stem (filename without extension) and use that for display
+            stem = rom_utils.get_rom_stem(self.original_filename)
+            return stem.strip()
         except Exception as e:
-            logger.warning(f"Failed to clean ROM name using RomUtils: {e}")
+            logger.warning(f"Failed to get ROM stem using RomUtils: {e}")
             # Fallback to basic cleaning
             clean = re.sub(r'\.(rvz|zip|7z|iso|bin|cue|chd|gcm|nes|sfc|smc|gba|gbc|gb|nds|n64|z64|v64|vb|pce|a26|a52|a78|cdi|gdi|wux|wud|xiso)$', '', self.original_filename, flags=re.IGNORECASE)
             return clean.strip()

@@ -98,7 +98,7 @@ class ROM:
                     rom_utils = RomUtils(config_path)
                     
                     # Update display_name based on the actual installed filename
-                    self.display_name = rom_utils.clean_rom_name_for_display(installed_filename)
+                    self.display_name = rom_utils.get_rom_stem(installed_filename)
                 except Exception:
                     # If dynamic cleaning fails, keep original display_name
                     pass

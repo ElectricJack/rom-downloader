@@ -354,7 +354,7 @@ class DistributedStateManager:
                 filename = rom_data.get('filename', rom_data.get('original_filename', ''))
                 rom_data['canonical_name'] = rom_utils.get_canonical_rom_name(filename)
                 rom_data['original_filename'] = filename
-                rom_data['display_name'] = rom_data.get('clean_name', rom_utils.clean_rom_name_for_display(filename))
+                rom_data['display_name'] = rom_data.get('clean_name', rom_utils.get_rom_stem(filename))
             
             # Remove init=False fields that shouldn't be passed to constructor
             installed_filename = rom_data.pop('_installed_filename', None)

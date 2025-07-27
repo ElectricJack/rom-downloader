@@ -128,6 +128,19 @@ class EnhancedDownloadManager:
         
         # Enhanced download manager initialized
     
+    def _reset_session(self):
+        """Reset HTTP session to clear any cached connections"""
+        try:
+            self.session.close()
+        except:
+            pass
+        
+        self.session = requests.Session()
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        })
+        logger.debug("HTTP session reset")
+    
     def download_roms(self, roms: List[ROM], platform: str,
                      progress_callback: Optional[Callable[[ROM, DownloadProgress], None]] = None,
                      completion_callback: Optional[Callable[[ROM, DownloadResult], None]] = None,
@@ -280,106 +293,191 @@ class EnhancedDownloadManager:
         temp_filename = f"{name_without_ext}_{int(time.time())}{extension}"
         temp_file = temp_dir / temp_filename
         
-        try:
-            logger.debug(f"Downloading {rom.url} to {temp_file}")
-            
-            # Check if already exists (resume support could be added here)
-            if temp_file.exists():
-                temp_file.unlink()
-            
-            # Start download with comprehensive browser-like headers for myrient compatibility
-            base_url = '/'.join(rom.url.split('/')[:-1]) + '/'
-            
-            # First, visit the directory page to establish session (anti-hotlinking protection)
+        # Retry settings for cache server issues
+        max_retries = 3
+        timeout_settings = [30, 45, 60]  # Progressive timeout increase
+        
+        for attempt in range(max_retries):
             try:
-                logger.debug(f"Pre-visiting directory page: {base_url}")
-                directory_response = self.session.get(base_url, timeout=15)
-                directory_response.raise_for_status()
-            except Exception as e:
-                logger.warning(f"Failed to pre-visit directory page: {e}")
-            
-            headers = {
-                'Referer': base_url,
-                'Accept': 'application/octet-stream,*/*;q=0.8',
-                'Accept-Language': 'en-US,en;q=0.5',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'DNT': '1',
-                'Connection': 'keep-alive',
-                'Sec-Fetch-Dest': 'document',
-                'Sec-Fetch-Mode': 'navigate',
-                'Sec-Fetch-Site': 'same-origin'
-            }
-            response = self.session.get(rom.url, stream=True, timeout=30, headers=headers)
-            response.raise_for_status()
-            
-            # Log response details for debugging
-            content_type = response.headers.get('content-type', 'unknown')
-            final_url = response.url
-            logger.info(f"HTTP {response.status_code}, Content-Type: {content_type}")
-            if final_url != rom.url:
-                logger.info(f"Request redirected from {rom.url} to {final_url}")
-            
-            # Check if we're getting HTML instead of expected file type
-            if 'text/html' in content_type.lower():
-                logger.error(f"Received HTML response instead of file for {rom.filename}. This suggests a 404 or redirect page.")
-                return None
-            
-            # Get total size
-            total_size = int(response.headers.get('content-length', 0))
-            logger.info(f"Expected download size: {total_size} bytes")
-            downloaded_size = 0
-            start_time = time.time()
-            
-            # Track progress
-            progress = DownloadProgress(
-                rom=rom,
-                total_bytes=total_size,
-                operation="downloading"
-            )
-            
-            with open(temp_file, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    if self.cancelled:
-                        temp_file.unlink(missing_ok=True)
-                        return None
+                logger.debug(f"Downloading {rom.url} to {temp_file} (attempt {attempt + 1}/{max_retries})")
+                
+                # Check if already exists (resume support could be added here)
+                if temp_file.exists():
+                    temp_file.unlink()
+                
+                # Start download with comprehensive browser-like headers for myrient compatibility
+                base_url = '/'.join(rom.url.split('/')[:-1]) + '/'
+                
+                # First, visit the directory page to establish session (anti-hotlinking protection)
+                try:
+                    logger.debug(f"Pre-visiting directory page: {base_url}")
+                    directory_response = self.session.get(base_url, timeout=15)
+                    directory_response.raise_for_status()
+                except Exception as e:
+                    logger.warning(f"Failed to pre-visit directory page: {e}")
+                
+                headers = {
+                    'Referer': base_url,
+                    'Accept': 'application/octet-stream,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.5',
+                    'Accept-Encoding': 'gzip, deflate, br',
+                    'DNT': '1',
+                    'Connection': 'keep-alive',
+                    'Sec-Fetch-Dest': 'document',
+                    'Sec-Fetch-Mode': 'navigate',
+                    'Sec-Fetch-Site': 'same-origin'
+                }
+                
+                # Use progressive timeout for each attempt
+                timeout = timeout_settings[attempt]
+                logger.debug(f"Using timeout of {timeout} seconds for attempt {attempt + 1}")
+                
+                response = self.session.get(rom.url, stream=True, timeout=timeout, headers=headers)
+                response.raise_for_status()
+                
+                # Log response details for debugging
+                content_type = response.headers.get('content-type', 'unknown')
+                final_url = response.url
+                logger.info(f"HTTP {response.status_code}, Content-Type: {content_type}")
+                if final_url != rom.url:
+                    logger.info(f"Request redirected from {rom.url} to {final_url}")
                     
-                    if chunk:
-                        f.write(chunk)
-                        downloaded_size += len(chunk)
+                    # Check if we're being redirected to a problematic cache server
+                    if 'mtcontent.rs' in str(final_url) and 'cache' in str(final_url):
+                        logger.warning(f"Redirected to cache server: {final_url}")
+                
+                # Check if we're getting HTML instead of expected file type
+                if 'text/html' in content_type.lower():
+                    logger.error(f"Received HTML response instead of file for {rom.filename}. This suggests a 404 or redirect page.")
+                    if attempt < max_retries - 1:
+                        logger.info(f"Will retry download in {2 ** attempt} seconds...")
+                        time.sleep(2 ** attempt)  # Exponential backoff
+                        continue
+                    return None
+                
+                # Get total size
+                total_size = int(response.headers.get('content-length', 0))
+                logger.info(f"Expected download size: {total_size} bytes")
+                downloaded_size = 0
+                start_time = time.time()
+                
+                # Track progress
+                progress = DownloadProgress(
+                    rom=rom,
+                    total_bytes=total_size,
+                    operation="downloading"
+                )
+                
+                with open(temp_file, 'wb') as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        if self.cancelled:
+                            temp_file.unlink(missing_ok=True)
+                            return None
                         
-                        # Update progress
-                        elapsed = time.time() - start_time
-                        if elapsed > 0:
-                            progress.current_bytes = downloaded_size
-                            progress.speed_bps = int(downloaded_size / elapsed)
+                        if chunk:
+                            f.write(chunk)
+                            downloaded_size += len(chunk)
                             
-                            if progress.speed_bps > 0:
-                                remaining_bytes = total_size - downloaded_size
-                                progress.eta_seconds = int(remaining_bytes / progress.speed_bps)
-                        
-                        if progress_callback:
-                            progress_callback(rom, progress)
-                # Ensure file is fully written to disk before processing
-                f.flush()
-                os.fsync(f.fileno())
-            
-            logger.debug(f"Downloaded {rom.filename} ({downloaded_size} bytes)")
-            
-            # Verify file integrity before returning
-            if not temp_file.exists() or temp_file.stat().st_size != downloaded_size:
-                logger.error(f"Download verification failed for {rom.filename}: expected {downloaded_size} bytes, got {temp_file.stat().st_size if temp_file.exists() else 0}")
+                            # Update progress
+                            elapsed = time.time() - start_time
+                            if elapsed > 0:
+                                progress.current_bytes = downloaded_size
+                                progress.speed_bps = int(downloaded_size / elapsed)
+                                
+                                if progress.speed_bps > 0:
+                                    remaining_bytes = total_size - downloaded_size
+                                    progress.eta_seconds = int(remaining_bytes / progress.speed_bps)
+                            
+                            if progress_callback:
+                                progress_callback(rom, progress)
+                    # Ensure file is fully written to disk before processing
+                    f.flush()
+                    os.fsync(f.fileno())
+                
+                logger.debug(f"Downloaded {rom.filename} ({downloaded_size} bytes)")
+                
+                # Verify file integrity before returning
+                if not temp_file.exists() or temp_file.stat().st_size != downloaded_size:
+                    logger.error(f"Download verification failed for {rom.filename}: expected {downloaded_size} bytes, got {temp_file.stat().st_size if temp_file.exists() else 0}")
+                    temp_file.unlink(missing_ok=True)
+                    if attempt < max_retries - 1:
+                        logger.info(f"Download verification failed, retrying in {2 ** attempt} seconds...")
+                        time.sleep(2 ** attempt)
+                        continue
+                    return None
+                    
+                # Success - return the downloaded file
+                return temp_file
+                
+            except requests.exceptions.ConnectTimeout as e:
+                logger.warning(f"Connection timeout on attempt {attempt + 1}/{max_retries} downloading {rom.filename}: {e}")
                 temp_file.unlink(missing_ok=True)
-                return None
-            return temp_file
-            
-        except requests.RequestException as e:
-            logger.error(f"Network error downloading {rom.filename}: {e}")
-            temp_file.unlink(missing_ok=True)
-            return None
-        except Exception as e:
-            logger.error(f"Error downloading {rom.filename}: {e}")
-            temp_file.unlink(missing_ok=True)
-            return None
+                
+                # If this was a cache server timeout, try with longer delay and session reset
+                if 'mtcontent.rs' in str(e) or 'cache' in str(e):
+                    wait_time = (2 ** attempt) * 3  # Longer backoff for cache servers
+                    logger.info(f"Cache server timeout detected. Resetting session and waiting {wait_time} seconds before retry...")
+                    self._reset_session()  # Reset session to clear cached connections
+                    time.sleep(wait_time)
+                elif attempt < max_retries - 1:
+                    wait_time = 2 ** attempt
+                    logger.info(f"Will retry download in {wait_time} seconds...")
+                    time.sleep(wait_time)
+                    
+                if attempt == max_retries - 1:
+                    logger.error(f"All {max_retries} attempts failed for {rom.filename} due to timeouts")
+                    return None
+                continue
+                
+            except requests.exceptions.SSLError as e:
+                logger.warning(f"SSL error on attempt {attempt + 1}/{max_retries} downloading {rom.filename}: {e}")
+                temp_file.unlink(missing_ok=True)
+                
+                # SSL errors with cache servers - reset session and use longer backoff
+                if 'mtcontent.rs' in str(e) or 'cache' in str(e) or 'EOF' in str(e):
+                    wait_time = (2 ** attempt) * 4  # Even longer backoff for SSL issues
+                    logger.info(f"Cache server SSL error detected. Resetting session and waiting {wait_time} seconds before retry...")
+                    self._reset_session()
+                    time.sleep(wait_time)
+                elif attempt < max_retries - 1:
+                    wait_time = 2 ** attempt
+                    logger.info(f"Will retry download in {wait_time} seconds...")
+                    time.sleep(wait_time)
+                    
+                if attempt == max_retries - 1:
+                    logger.error(f"All {max_retries} attempts failed for {rom.filename} due to SSL errors")
+                    return None
+                continue
+                
+            except requests.RequestException as e:
+                logger.warning(f"Network error on attempt {attempt + 1}/{max_retries} downloading {rom.filename}: {e}")
+                temp_file.unlink(missing_ok=True)
+                
+                if attempt < max_retries - 1:
+                    wait_time = 2 ** attempt
+                    logger.info(f"Will retry download in {wait_time} seconds...")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    logger.error(f"All {max_retries} attempts failed for {rom.filename}")
+                    return None
+                    
+            except Exception as e:
+                logger.error(f"Unexpected error on attempt {attempt + 1}/{max_retries} downloading {rom.filename}: {e}")
+                temp_file.unlink(missing_ok=True)
+                
+                if attempt < max_retries - 1:
+                    wait_time = 2 ** attempt
+                    logger.info(f"Will retry download in {wait_time} seconds...")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    logger.error(f"All {max_retries} attempts failed for {rom.filename}")
+                    return None
+        
+        # Should not reach here, but safety fallback
+        logger.error(f"Download failed for {rom.filename} - no successful attempts")
+        return None
     
     def _process_rom(self, rom_file: Path, rom: ROM, platform: str, target_dir: Path,
                     progress_callback: Optional[Callable[[ROM, DownloadProgress], None]] = None) -> ProcessingResult:

@@ -1,0 +1,12 @@
+# Normalize all text files to LF in the repository
+* text=auto eol=lf
+
+# Treat known binary types as binary (never normalize)
+*.exe binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.7z binary
+*.zip binary

@@ -448,7 +448,7 @@ class RomFilter:
                         if normalized_name not in existing_online_roms:
                             # Debug logging to help troubleshoot matching issues
                             logger.debug(f"ROM marked as installed-only: {file_name}")
-                            logger.debug(f"  Stem: '{stem}'")
+                            logger.debug(f"  Stem: '{file_path.stem}'")
                             logger.debug(f"  Normalized: '{normalized_name}'")
                             logger.debug(f"  Available online ROMs (first 5): {list(existing_online_roms)[:5]}")
                             

@@ -8,7 +8,7 @@ This module provides the core filtering logic that implements:
 """
 
 import logging
-from typing import Set, List, Dict, Optional
+from typing import Set, List, Dict
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)

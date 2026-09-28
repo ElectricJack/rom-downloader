@@ -83,4 +83,8 @@ state/app_state.json
 game_library.json
 state/selections.json
 state/app_settings.json
-.claude
+.claude/*
+!.claude/settings.json
+
+# graft index cache (regenerable)
+/graft/
